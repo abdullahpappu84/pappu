@@ -95,6 +95,8 @@ const aggregatorAdapter: GameAdapter = {
       lobbyUrl: i.lobbyUrl,
       ip: i.ip,
     });
+
+
     const headers: Record<string, string> = { "Content-Type": "application/json", Authorization: `Bearer ${key}` };
     const secret = env("GAME_API_SECRET");
     if (secret) headers["X-Signature"] = createHmac("sha256", secret).update(body).digest("hex");
@@ -116,11 +118,196 @@ const aggregatorAdapter: GameAdapter = {
     return { url, display: env("GAME_DISPLAY") === "redirect" ? "redirect" : "iframe" };
   },
 };
+const casinoApiProAdapter: GameAdapter = {
+  code: "casino_api_pro",
+  label: "Casino API Pro",
 
+  async launch(i) {
+    const base =
+      env("CASINO_API_URL") ||
+      "https://api.casinoapipro.com/v1";
+
+    const apiKey = env("CASINO_API_KEY");
+    const apiSecret = env("CASINO_API_SECRET");
+
+    if (!apiKey || !apiSecret) {
+      throw conflict(
+        "Casino API Pro is not configured."
+      );
+    }
+
+    if (!i.game.integrationRef) {
+      throw conflict(
+        `${i.game.name} has no Casino API Pro game ID.`
+      );
+    }
+
+    // Get access token
+    let tokenResponse: Response;
+
+    try {
+      tokenResponse = await fetch(
+        `${base}/auth/token`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            api_key: apiKey,
+            api_secret: apiSecret,
+          }),
+          cache: "no-store",
+        }
+      );
+    } catch (error) {
+      console.error(
+        "[casino_api_pro] token request failed",
+        error
+      );
+
+      throw conflict(
+        "Casino API Pro is not reachable."
+      );
+    }
+
+    const tokenData =
+      (await tokenResponse
+        .json()
+        .catch(() => ({}))) as Record<string, unknown>;
+
+    if (!tokenResponse.ok) {
+      console.error(
+        "[casino_api_pro] token error",
+        tokenResponse.status,
+        tokenData
+      );
+
+      throw conflict(
+        String(
+          tokenData.message ||
+          tokenData.error ||
+          "Casino API Pro authentication failed."
+        )
+      );
+    }
+
+    const tokenObject =
+      tokenData.data as
+        | Record<string, unknown>
+        | undefined;
+
+    const accessToken = String(
+      tokenData.access_token ||
+      tokenObject?.access_token ||
+      ""
+    );
+
+    if (!accessToken) {
+      throw conflict(
+        "Casino API Pro did not return an access token."
+      );
+    }
+
+    // Create game session
+    let sessionResponse: Response;
+
+    try {
+      sessionResponse = await fetch(
+        `${base}/sessions`,
+        {
+          method: "POST",
+          headers: {
+            Authorization:
+              `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            game_id: i.game.integrationRef,
+            player_id: i.user?.id,
+            currency:
+              i.user?.currency || "EUR",
+            player_name:
+              i.user?.name,
+            return_url:
+              i.lobbyUrl,
+          }),
+          cache: "no-store",
+        }
+      );
+    } catch (error) {
+      console.error(
+        "[casino_api_pro] session request failed",
+        error
+      );
+
+      throw conflict(
+        "Casino API Pro session service is not reachable."
+      );
+    }
+
+    const sessionData =
+      (await sessionResponse
+        .json()
+        .catch(() => ({}))) as Record<string, unknown>;
+
+    if (!sessionResponse.ok) {
+      console.error(
+        "[casino_api_pro] session error",
+        sessionResponse.status,
+        sessionData
+      );
+
+      throw conflict(
+        String(
+          sessionData.message ||
+          sessionData.error ||
+          "Casino API Pro session creation failed."
+        )
+      );
+    }
+
+    const sessionObject =
+      sessionData.data as
+        | Record<string, unknown>
+        | undefined;
+
+    const launchUrl = String(
+      sessionData.launch_url ||
+      sessionData.launchUrl ||
+      sessionData.url ||
+      sessionObject?.launch_url ||
+      sessionObject?.launchUrl ||
+      sessionObject?.url ||
+      ""
+    );
+
+    if (
+      !launchUrl ||
+      !/^https?:\/\//.test(launchUrl)
+    ) {
+      console.error(
+        "[casino_api_pro] launch URL missing",
+        sessionData
+      );
+
+      throw conflict(
+        "Casino API Pro did not return a valid launch URL."
+      );
+    }
+
+    return {
+      url: launchUrl,
+      display: "iframe",
+    };
+  },
+};
 const REGISTRY: Record<string, GameAdapter> = {
   [directAdapter.code]: directAdapter,
   [aggregatorAdapter.code]: aggregatorAdapter,
-  // mycustomprovider: myCustomAdapter,
+  [casinoApiProAdapter.code]: casinoApiProAdapter,
 };
 
 export const getGameAdapter = (code?: string | null) => REGISTRY[code || env("GAME_DEFAULT_ADAPTER") || "direct"] ?? directAdapter;
