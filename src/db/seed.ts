@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { db } from "./index";
+import { ensureSchema } from "./migrate";
 import * as t from "./schema";
 import { genReference, genReferralCode, hashPassword } from "../lib/server/crypto";
 import { PERMISSIONS, ROLE_PRESETS } from "../lib/permissions";
@@ -218,6 +219,7 @@ export async function ensureSeeded() {
   if (g.__arSeeded) return;
   g.__arSeeding ??= (async () => {
     try {
+      await ensureSchema();
       const [done] = await db.select().from(t.siteSettings).where(eq(t.siteSettings.key, SEED_KEY));
       if (!done) await seedDatabase();
       await ensureGatewayMethods();

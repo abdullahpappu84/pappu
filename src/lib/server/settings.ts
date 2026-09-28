@@ -7,7 +7,12 @@ export const DEFAULT_SETTINGS = {
     name: "Aurum Royale",
     tagline: "Prestige · Play · Worldwide",
     logoUrl: "",
+    /** Square icon (optional) — used in small places (login modal, game player, admin) */
+    iconUrl: "",
     faviconUrl: "",
+    /** Logo height in px (desktop header / mobile header) */
+    logoHeight: 40,
+    logoHeightMobile: 32,
     contactEmail: "support@aurumroyale.example",
     contactPhone: "+44 20 0000 0000",
     address: "Placeholder Address, Valletta, Malta",

@@ -35,10 +35,12 @@ Optional integrations:
 
 ## 4. Database
 
-- Create the schema: \`npx drizzle-kit push\` (update \`drizzle.config.json\` or export \`DATABASE_URL\` for your environment)
-- Seed defaults (roles, permissions, Super Admin, catalog, payment methods, bonuses, VIP levels, CMS pages): \`npx tsx --env-file=.env src/db/seed-cli.ts\`
-- Seeding is idempotent and also runs automatically on the first request.
+- **Automatic:** on every start the app creates missing tables, applies new migrations (SQL files in \`/drizzle\`) and seeds default data (roles, permissions, Super Admin, catalog, payment methods, bonuses, VIP levels, CMS pages). A brand-new or empty database works immediately — no manual step needed.
+- Manual alternative (same result): \`npx tsx --env-file=.env src/db/seed-cli.ts\`
+- **After changing \`src/db/schema.ts\`** (developers): run \`npx drizzle-kit generate\` to create a new migration file, commit it, and restart — the app applies it automatically.
+- Databases created earlier with \`drizzle-kit push\` are detected and kept (baseline) — no data is lost.
 - Enable automated daily backups and point-in-time recovery on your database.
+- **"This page couldn’t load / server error"** on first start almost always means \`DATABASE_URL\` is wrong or PostgreSQL is not reachable — check \`pm2 logs aurum\` for lines starting with \`[db]\`.
 
 ## 5. Build & run
 
@@ -68,6 +70,19 @@ Optional integrations:
 - Configure Site Settings: name, logo, favicon, contact, socials, currency, timezone, registration rules, withdrawal limits & fees, referral %, SEO (meta, OG image, canonical URL, robots)
 - Replace placeholder CMS pages (Terms, Privacy, Responsible Gaming) with your licensed legal texts
 - Set \`EXPOSE_DEV_TOKENS=false\` and configure the email/SMS relays
+
+## 6a. Logo & branding (লোগো পরিবর্তন)
+
+- Admin → System → **Site Settings & SEO** → **site**
+- **logoUrl** → **Upload** চাপুন → PNG/WEBP/JPG লোগো দিন (transparent PNG ভালো, প্রায় 400×100 px)। উপরে live preview দেখায় → **Save settings**
+- **logoHeight** (desktop header, px) আর **logoHeightMobile** (mobile header, px) দিয়ে সাইজ ঠিক করুন
+- **iconUrl** — ছোট বর্গাকার আইকন (প্রায় 256×256), login modal, game player, admin-এ crown-এর বদলে দেখায়
+- **faviconUrl** — browser tab-এর আইকন (64×64 বা 180×180 PNG)
+- **name** আর **tagline** — লোগো ছবি না দিলে এগুলো দিয়ে টেক্সট লোগো তৈরি হয় (প্রথম শব্দ সাদা, বাকিটা সোনালি), আর footer ও ইমেইলেও এই নাম ব্যবহার হয়
+- **seo → ogImage** — Facebook/WhatsApp-এ share করলে যে ছবি দেখায় (1200×630)
+- লোগো মুছে টেক্সট লোগোতে ফিরতে **Remove** চাপুন
+- নিরাপত্তার কারণে SVG আপলোড করা যায় না (PNG/WEBP/JPG ব্যবহার করুন, সর্বোচ্চ 5MB)
+- লোগো সাইট, mobile header, footer, admin panel আর admin login — সবখানে একসাথে বদলে যায়
 
 ## 7. Payments
 

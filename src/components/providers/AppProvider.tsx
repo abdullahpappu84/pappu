@@ -11,7 +11,7 @@ import type { Category, CategoryId, Game, HeroSlide, LiveTable } from "@/data/ty
 export type ActiveGame = { title: string; url: string; mode: "real" | "demo" };
 export type AuthMode = "login" | "register" | "forgot";
 export type PublicSettingsDTO = {
-  site: { name: string; tagline: string; logoUrl: string; faviconUrl: string; contactEmail: string; contactPhone: string; address: string; socials: Record<string, string> };
+  site: { name: string; tagline: string; logoUrl: string; iconUrl: string; faviconUrl: string; logoHeight: number; logoHeightMobile: number; contactEmail: string; contactPhone: string; address: string; socials: Record<string, string> };
   locale: { currency: string; currencySymbol: string; language: string; timezone: string };
   registration: { enabled: boolean; requirePhone: boolean };
   support: { liveChatEnabled: boolean; email: string; hours: string };

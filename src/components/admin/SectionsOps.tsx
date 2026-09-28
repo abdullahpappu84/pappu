@@ -1,6 +1,8 @@
 "use client";
 
-import { Lock, Send } from "lucide-react";
+import { Lock, Send, Upload } from "lucide-react";
+import { BrandProvider } from "@/components/ui/BrandContext";
+import { Logo, LogoMark } from "@/components/ui/Logo";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, Empty, Input, Label, Pagination, Select, Spinner, StatusBadge, Table, Textarea, useApi, inputCls } from "@/components/ui/kit";
@@ -136,6 +138,67 @@ export function NotificationsSection() {
 
 const LONG = new Set(["message", "metaDescription", "robotsDisallow", "address", "keywords"]);
 
+const IMAGE_FIELDS: Record<string, string> = {
+  logoUrl: "Main logo. Transparent PNG/WEBP recommended, ~400×100 px (wide). Leave empty to use the text logo (name + tagline).",
+  iconUrl: "Square icon, ~256×256 px transparent PNG. Replaces the crown mark in small places.",
+  faviconUrl: "Browser tab icon. Square PNG, 64×64 or 180×180 px.",
+  ogImage: "Social share image (Facebook/WhatsApp/X). 1200×630 px JPG/PNG.",
+};
+
+function ImageSetting({ label, hint, value, onChange, disabled }: { label: string; hint: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const upload = async (file: File) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const r = await api<{ url: string }>("/api/admin/upload", { form: fd });
+      onChange(r.url);
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="md:col-span-2">
+      <Label label={label} hint={err ?? hint}>
+        <div className="flex items-center gap-2">
+          <span className="grid h-14 w-24 shrink-0 place-items-center overflow-hidden rounded-xl border border-white/10 bg-[repeating-conic-gradient(#1a1f2e_0_25%,#0f121c_0_50%)] bg-[length:14px_14px]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {value ? <img src={value} alt="" className="max-h-12 max-w-[88px] object-contain" /> : <span className="text-[10px] text-white/35">none</span>}
+          </span>
+          <input className={inputCls} value={value} onChange={(e) => onChange(e.target.value)} placeholder="/api/files/public/media/… or https://…" disabled={disabled} />
+          <label className={`inline-flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-gold-300/40 px-3.5 text-[12.5px] font-semibold text-gold-200 hover:bg-gold-400/10 ${disabled ? "pointer-events-none opacity-50" : ""}`}>
+            <Upload className="h-4 w-4" /> {busy ? "Uploading…" : "Upload"}
+            <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={disabled} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
+          </label>
+          {value && !disabled && (
+            <button type="button" onClick={() => onChange("")} className="h-11 shrink-0 rounded-xl border border-white/10 px-3 text-[12px] text-white/60 hover:text-rose-300">Remove</button>
+          )}
+        </div>
+      </Label>
+    </div>
+  );
+}
+
+function LogoPreview({ site }: { site: Any }) {
+  return (
+    <div className="mb-5 rounded-2xl border border-white/10 bg-ink-950/60 p-4">
+      <p className="mb-3 text-[11px] uppercase tracking-wider text-white/45">Live preview (save to apply on the site)</p>
+      <BrandProvider brand={site}>
+        <div className="flex flex-wrap items-center gap-8">
+          <div><p className="mb-1.5 text-[10px] text-white/35">Desktop header</p><Logo size="md" /></div>
+          <div><p className="mb-1.5 text-[10px] text-white/35">Mobile header</p><Logo size="sm" /></div>
+          <div><p className="mb-1.5 text-[10px] text-white/35">Icon</p><LogoMark className="h-9 w-9" /></div>
+        </div>
+      </BrandProvider>
+    </div>
+  );
+}
+
 export function SettingsSection({ me }: { me: AdminMe }) {
   const { data, reload } = useApi<Any>("/api/admin/settings");
   const [group, setGroup] = useState("site");
@@ -152,6 +215,7 @@ export function SettingsSection({ me }: { me: AdminMe }) {
     if (typeof v === "number") return <Input key={k} label={k} type="number" step="any" value={String(v)} onChange={(e) => setVal(Number(e.target.value))} disabled={!editable} />;
     if (v && typeof v === "object") return <div key={k} className="md:col-span-2"><p className="mb-2 text-[11.5px] uppercase tracking-wider text-white/50">{k}</p><div className="grid gap-3 md:grid-cols-2">{Object.entries(v).map(([kk, vv]) => field(kk, vv, [...path, k]))}</div></div>;
     if (LONG.has(k)) return <div key={k} className="md:col-span-2"><Textarea label={k} value={String(v ?? "")} onChange={(e) => setVal(e.target.value)} disabled={!editable} /></div>;
+    if (IMAGE_FIELDS[k]) return <ImageSetting key={k} label={k} hint={IMAGE_FIELDS[k]} value={String(v ?? "")} onChange={setVal} disabled={!editable} />;
     return <Input key={k} label={k} value={String(v ?? "")} onChange={(e) => setVal(e.target.value)} disabled={!editable} />;
   };
 
@@ -161,6 +225,7 @@ export function SettingsSection({ me }: { me: AdminMe }) {
         {groups.map((g) => <button key={g} onClick={() => { setGroup(g); setMsg(null); }} className={`shrink-0 rounded-lg px-3 py-2 text-left text-[13px] capitalize ${group === g ? "bg-gold-400/15 text-gold-200" : "text-white/65 hover:bg-white/5"}`}>{g === "seo" ? "SEO" : g}</button>)}
       </nav>
       <Card title={`${group === "seo" ? "SEO" : group[0].toUpperCase() + group.slice(1)} settings`}>
+        {group === "site" && draft && <LogoPreview site={draft} />}
         <div className="grid gap-3 md:grid-cols-2">{Object.entries(draft ?? {}).map(([k, v]) => field(k, v))}</div>
         {group === "seo" && <p className="mt-3 text-[12px] text-white/45">Sitemap: <a href="/sitemap.xml" target="_blank" className="text-gold-300">/sitemap.xml</a> · Robots: <a href="/robots.txt" target="_blank" className="text-gold-300">/robots.txt</a></p>}
         {editable && <Button className="mt-4" onClick={async () => { try { await api(`/api/admin/settings/${group}`, { method: "PUT", body: draft }); setMsg("✔ Saved"); reload(); } catch (e) { setMsg(`✖ ${errMsg(e)}`); } }}>Save settings</Button>}

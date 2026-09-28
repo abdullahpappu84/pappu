@@ -1,8 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { BRAND } from "@/data/casino";
-import { useOptionalApp } from "@/components/providers/AppProvider";
+import { useBrand } from "./BrandContext";
 
 interface LogoProps {
   size?: "sm" | "md" | "lg";
@@ -11,7 +10,11 @@ interface LogoProps {
 }
 
 export function LogoMark({ className = "h-9 w-9" }: { className?: string }) {
+  const { iconUrl } = useBrand();
   const raw = useId();
+  if (iconUrl)
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={iconUrl} alt="" aria-hidden="true" className={`${className} object-contain`} />;
   const id = `lg${raw.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   return (
     <svg viewBox="0 0 48 46" className={className} aria-hidden="true">
@@ -47,25 +50,37 @@ const sizes = {
   lg: { mark: "h-11 w-11", word: "text-[30px]", tag: "text-[9px] tracking-[0.34em]" },
 };
 
+/**
+ * Site logo. Controlled from Admin → Site Settings → site:
+ *  - logoUrl set  → uploaded image (height = logoHeight / logoHeightMobile)
+ *  - otherwise    → crown mark (or iconUrl) + wordmark built from `name` (first word white, rest gold) + `tagline`
+ */
 export function Logo({ size = "md", showTagline = true, className = "" }: LogoProps) {
   const s = sizes[size];
-  const logoUrl = useOptionalApp()?.settings.site.logoUrl;
-  if (logoUrl)
+  const brand = useBrand();
+  if (brand.logoUrl) {
+    const h = size === "sm" ? brand.logoHeightMobile : size === "md" ? brand.logoHeight : Math.round(brand.logoHeight * 1.2);
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={logoUrl} alt={BRAND.name} className={`${size === "sm" ? "h-8" : size === "md" ? "h-10" : "h-12"} w-auto ${className}`} />
+      <img src={brand.logoUrl} alt={brand.name} style={{ height: h, maxWidth: size === "sm" ? 170 : 260 }} className={`w-auto object-contain ${className}`} />
     );
+  }
+  const [first, ...rest] = brand.name.trim().split(/\s+/);
   return (
     <span className={`inline-flex items-center gap-2.5 select-none ${className}`}>
       <LogoMark className={`${s.mark} drop-shadow-[0_2px_10px_rgba(240,185,63,0.35)]`} />
       <span className="flex flex-col leading-none">
         <span className={`font-display font-bold ${s.word} tracking-[0.01em]`}>
-          <span className="text-white">{BRAND.first}</span>
-          <span className="text-gold-gradient">{BRAND.second}</span>
+          {rest.length ? (
+            <>
+              <span className="text-white">{first}</span>
+              <span className="text-gold-gradient">{rest.join(" ")}</span>
+            </>
+          ) : (
+            <span className="text-gold-gradient">{first}</span>
+          )}
         </span>
-        {showTagline && (
-          <span className={`mt-1 font-medium uppercase text-white/55 ${s.tag}`}>{BRAND.tagline}</span>
-        )}
+        {showTagline && brand.tagline && <span className={`mt-1 font-medium uppercase text-white/55 ${s.tag}`}>{brand.tagline}</span>}
       </span>
     </span>
   );

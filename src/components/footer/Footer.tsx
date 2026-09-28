@@ -1,7 +1,6 @@
 "use client";
 
 import { ChevronDown, Landmark, Mail, MessageCircle, Smartphone, Wallet } from "lucide-react";
-import { BRAND } from "@/data/casino";
 import type { CategoryId } from "@/data/types";
 import { useApp } from "@/components/providers/AppProvider";
 import { useNavAction } from "@/components/header/useNavAction";
@@ -74,7 +73,7 @@ export function Footer() {
           <div className="space-y-4">
             <Logo size="md" />
             <p className="max-w-sm text-[13px] leading-relaxed text-white/55">
-              {BRAND.name} is a premium international gaming destination offering world-class slots, live dealer tables and
+              {settings.site.name} is a premium international gaming destination offering world-class slots, live dealer tables and
               exclusive VIP experiences.
             </p>
             <div className="flex flex-wrap gap-2">
@@ -161,7 +160,7 @@ export function Footer() {
             </p>
           </div>
           <p className="text-[12px] text-white/45">
-            © {new Date().getFullYear()} {BRAND.name}. All rights reserved.
+            © {new Date().getFullYear()} {settings.site.name}. All rights reserved.
           </p>
         </div>
       </div>
