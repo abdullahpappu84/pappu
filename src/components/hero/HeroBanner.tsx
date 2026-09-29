@@ -168,13 +168,13 @@ export function HeroBanner() {
                   <p className="mt-4 hidden max-w-[440px] text-[14px] leading-relaxed text-white/80 md:block lg:text-[15.5px] xl:max-w-[480px]">
                     {slide.description}
                   </p>
-                  <div className="mt-3 flex items-center gap-3 xs:mt-4 md:mt-6 lg:mt-7">
+                  <div className="mt-3 flex flex-wrap items-center gap-2 xs:mt-4 md:mt-6 md:gap-3 lg:mt-7">
                     <Button
                       variant="gold"
                       pill
                       onClick={primaryAction}
                       iconRight={<ArrowRight className="relative h-4 w-4" />}
-                      className="h-9 px-4 text-[12px] xs:h-10 xs:px-5 xs:text-[13px] md:h-12 md:px-8 md:text-[15px]"
+                      className="h-9 shrink-0 px-4 text-[12px] xs:h-10 xs:px-5 xs:text-[13px] md:h-12 md:px-8 md:text-[15px]"
                     >
                       {slide.primaryCta}
                     </Button>
@@ -182,7 +182,7 @@ export function HeroBanner() {
                       variant="outline"
                       pill
                       onClick={secondaryAction}
-                      className="hidden h-12 px-7 text-[13px] uppercase tracking-wide backdrop-blur-sm md:inline-flex"
+                      className="hidden h-12 shrink-0 px-7 text-[13px] uppercase tracking-wide backdrop-blur-sm md:inline-flex"
                     >
                       {slide.secondaryCta}
                     </Button>
