@@ -1,8 +1,8 @@
 "use client";
 
-import { Bell, Crown, FileCheck2, Gift, Heart, Headset, LayoutDashboard, LogOut, Receipt, ShieldCheck, User, Users, Wallet, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { Bell, ChevronLeft, ChevronRight, Crown, FileCheck2, Gift, Heart, Headset, LayoutDashboard, LogOut, Receipt, ShieldCheck, User, Users, Wallet, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useApp } from "@/components/providers/AppProvider";
 import { Avatar } from "@/components/header/HeaderMenus";
 import { Button } from "@/components/ui/Button";
@@ -83,12 +83,27 @@ export function AccountDashboard() {
   const tab = useSearchParams().get("tab") ?? "overview";
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
   const activeTabRef = useRef<HTMLButtonElement>(null);
+  const tabNavRef = useRef<HTMLElement>(null);
+  const [tabScroll, setTabScroll] = useState({ left: false, right: false });
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 1023px)").matches) {
       activeTabRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
     }
   }, [current.id]);
+
+  useEffect(() => {
+    const nav = tabNavRef.current;
+    if (!nav) return;
+    const update = () => setTabScroll({ left: nav.scrollLeft > 0, right: nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 1 });
+    update();
+    nav.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      nav.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
 
   if (!user)
     return (
@@ -117,7 +132,17 @@ export function AccountDashboard() {
               </div>
             </div>
           </div>
-          <nav aria-label="Account" className="-mx-4 mt-0 flex snap-x snap-mandatory gap-1.5 overflow-x-auto px-4 pb-1 no-scrollbar lg:mx-0 lg:mt-3 lg:flex-col lg:overflow-visible lg:px-0">
+          <div className="-mx-4 flex items-center gap-1 px-1 lg:mx-0 lg:block lg:p-0">
+            <button
+              type="button"
+              aria-label="Show previous account tabs"
+              disabled={!tabScroll.left}
+              onClick={() => tabNavRef.current?.scrollBy({ left: -240, behavior: "smooth" })}
+              className="grid h-8 w-7 shrink-0 place-items-center rounded-lg text-white/65 transition hover:bg-white/10 hover:text-white disabled:pointer-events-none disabled:opacity-20 lg:hidden"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <nav ref={tabNavRef} aria-label="Account" className="-mx-1 flex min-w-0 flex-1 snap-x snap-mandatory gap-1.5 overflow-x-auto px-1 pb-1 no-scrollbar lg:mx-0 lg:mt-3 lg:flex-col lg:overflow-visible lg:px-0">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -134,7 +159,17 @@ export function AccountDashboard() {
             <button onClick={logout} className="hidden items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[13px] text-rose-300/90 hover:bg-rose-500/10 lg:flex">
               <LogOut className="h-4 w-4" /> Sign out
             </button>
-          </nav>
+            </nav>
+            <button
+              type="button"
+              aria-label="Show next account tabs"
+              disabled={!tabScroll.right}
+              onClick={() => tabNavRef.current?.scrollBy({ left: 240, behavior: "smooth" })}
+              className="grid h-8 w-7 shrink-0 place-items-center rounded-lg text-white/65 transition hover:bg-white/10 hover:text-white disabled:pointer-events-none disabled:opacity-20 lg:hidden"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </aside>
         <section className="min-w-0">
           <h1 className="mb-4 font-display text-[28px] font-semibold uppercase tracking-wide text-white md:text-[32px]">{current.label}</h1>
