@@ -123,23 +123,23 @@ export function DepositTab() {
         {!data ? (
           <Spinner />
         ) : (
-          <form onSubmit={submit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <form onSubmit={submit} className="min-w-0 space-y-4">
+            <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
               {data.items.map((m) => (
                 <button
                   type="button"
                   key={m.id}
                   onClick={() => setPmId(m.id)}
-                  className={`rounded-xl border px-3 py-3 text-left transition ${pm?.id === m.id ? "border-gold-300/70 bg-gold-400/10 shadow-[0_0_20px_-8px_rgba(240,185,63,0.6)]" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}
+                  className={`min-w-0 w-full rounded-xl border px-3 py-3 text-left transition ${pm?.id === m.id ? "border-gold-300/70 bg-gold-400/10 shadow-[0_0_20px_-8px_rgba(240,185,63,0.6)]" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}
                 >
-                  <p className="text-[13px] font-semibold text-white">{m.name}</p>
-                  <p className="mt-0.5 text-[11px] text-white/45">{m.processingTime}</p>
+                  <p className="break-words text-[13px] font-semibold text-white">{m.name}</p>
+                  <p className="mt-0.5 break-words text-[11px] text-white/45">{m.processingTime}</p>
                 </button>
               ))}
             </div>
             {pm && (
               <>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                   <Input label="Amount" type="number" min={1} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required hint={`Min ${money(Math.max(Number(pm.minAmount), data.limits.min ?? 0), sym)} · Max ${money(Math.min(Number(pm.maxAmount), data.limits.max ?? 1e9), sym)}${Number(pm.feePercent) || Number(pm.feeFixed) ? ` · Fee ${pm.feePercent}% + ${money(pm.feeFixed, sym)}` : ""}`} />
                   <Select label="Bonus" value={promo ? "" : bonusId} onChange={(e) => setBonusId(e.target.value)} disabled={!!promo} options={[{ value: "", label: "No bonus" }, ...data.bonuses.map((b) => ({ value: b.id, label: `${b.name} (min ${money(b.minDeposit, sym)})` }))]} />
                 </div>
@@ -151,9 +151,9 @@ export function DepositTab() {
                   ))}
                 </div>
                 <Label label="Promo code (optional)" hint={promoInfo}>
-                  <div className="flex gap-2">
-                    <input className={`${inputCls} uppercase`} value={promo} onChange={(e) => { setPromo(e.target.value); setPromoInfo(null); }} placeholder="e.g. WELCOME50" />
-                    <Button type="button" variant="outline" onClick={checkPromo}>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                    <input className={`${inputCls} min-w-0 w-full flex-1 uppercase`} value={promo} onChange={(e) => { setPromo(e.target.value); setPromoInfo(null); }} placeholder="e.g. WELCOME50" />
+                    <Button type="button" variant="outline" className="shrink-0" onClick={checkPromo}>
                       Check
                     </Button>
                   </div>
@@ -161,14 +161,14 @@ export function DepositTab() {
                 {(pm.instructions || pm.accountDetails) && (
                   <div className="rounded-xl border border-gold-300/20 bg-gold-400/[0.05] p-3.5 text-[12.5px] text-white/75">
                     {pm.instructions && <p>{pm.instructions}</p>}
-                    {pm.accountDetails && <pre className="mt-2 whitespace-pre-wrap font-mono text-[12px] text-gold-100">{pm.accountDetails}</pre>}
+                    {pm.accountDetails && <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[12px] text-gold-100">{pm.accountDetails}</pre>}
                   </div>
                 )}
                 {pm.requiresProof && (
                   <Label label="Payment proof (required)" hint="JPG, PNG, WEBP or PDF · max 5MB">
-                    <label className={`${inputCls} flex cursor-pointer items-center gap-2 text-white/60`}>
+                    <label className={`${inputCls} flex min-w-0 cursor-pointer items-center gap-2 text-white/60`}>
                       <FileUp className="h-4 w-4 text-gold-300" />
-                      <span className="truncate">{proof?.name ?? "Choose file…"}</span>
+                      <span className="min-w-0 truncate">{proof?.name ?? "Choose file…"}</span>
                       <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={(e) => setProof(e.target.files?.[0] ?? null)} />
                     </label>
                   </Label>
@@ -232,24 +232,24 @@ export function WithdrawTab() {
         {!data ? (
           <Spinner />
         ) : (
-          <form onSubmit={submit} className="space-y-4">
+          <form onSubmit={submit} className="min-w-0 space-y-4">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {data.items.map((m) => (
-                <button type="button" key={m.id} onClick={() => { setPmId(m.id); setDetails({}); }} className={`rounded-xl border px-3 py-3 text-left transition ${pm?.id === m.id ? "border-gold-300/70 bg-gold-400/10" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}>
-                  <p className="text-[13px] font-semibold text-white">{m.name}</p>
-                  <p className="mt-0.5 text-[11px] text-white/45">{m.processingTime}</p>
+                <button type="button" key={m.id} onClick={() => { setPmId(m.id); setDetails({}); }} className={`min-w-0 w-full rounded-xl border px-3 py-3 text-left transition ${pm?.id === m.id ? "border-gold-300/70 bg-gold-400/10" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}>
+                  <p className="break-words text-[13px] font-semibold text-white">{m.name}</p>
+                  <p className="mt-0.5 break-words text-[11px] text-white/45">{m.processingTime}</p>
                 </button>
               ))}
             </div>
             {pm && (
               <>
                 <Input label="Amount" type="number" min={1} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required hint={`Min ${money(Math.max(Number(pm.minAmount), data.limits.min ?? 0), sym)} · Max ${money(Math.min(Number(pm.maxAmount), data.limits.max ?? 1e9), sym)} · Daily limit ${money(data.limits.dailyLimitAmount, sym)} / ${data.limits.dailyLimitCount} requests`} />
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                   {(pm.fields ?? []).map((f) => (
                     <Input key={f.name} label={f.label} placeholder={f.placeholder} value={details[f.name] ?? ""} onChange={(e) => setDetails((d) => ({ ...d, [f.name]: e.target.value }))} required />
                   ))}
                 </div>
-                <div className="flex justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-[12.5px]">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-[12.5px]">
                   <span className="text-white/55">Fee {money(fee, sym)}</span>
                   <span className="text-white">You receive <b className="text-gold-200">{money(Math.max(0, (Number(amount) || 0) - fee), sym)}</b></span>
                 </div>
