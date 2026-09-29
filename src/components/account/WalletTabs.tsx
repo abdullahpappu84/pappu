@@ -151,9 +151,9 @@ export function DepositTab() {
                   ))}
                 </div>
                 <Label label="Promo code (optional)" hint={promoInfo}>
-                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-                    <input className={`${inputCls} min-w-0 w-full flex-1 uppercase`} value={promo} onChange={(e) => { setPromo(e.target.value); setPromoInfo(null); }} placeholder="e.g. WELCOME50" />
-                    <Button type="button" variant="outline" className="shrink-0" onClick={checkPromo}>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <input className={`${inputCls} h-12 min-w-0 flex-1 uppercase`} value={promo} onChange={(e) => { setPromo(e.target.value); setPromoInfo(null); }} placeholder="e.g. WELCOME50" />
+                    <Button type="button" variant="outline" className="h-12 shrink-0 px-5" onClick={checkPromo}>
                       Check
                     </Button>
                   </div>

@@ -1,5 +1,5 @@
 import "server-only";
-import { createHmac } from "crypto";
+import { createHash, createHmac } from "crypto";
 import type { games } from "@/db/schema";
 import { conflict } from "../http";
 
@@ -39,6 +39,8 @@ export interface LaunchResult {
   url: string;
   /** iframe = open inside our GamePlayer · redirect = provider forbids iframes */
   display: "iframe" | "redirect";
+  /** Providers with play-money credentials can force the player UI to show demo mode. */
+  mode?: "real" | "demo";
 }
 
 export interface GameAdapter {
@@ -124,11 +126,12 @@ const casinoApiProAdapter: GameAdapter = {
 
   async launch(i) {
     const base =
+      env("CASINOAPIPRO_BASE_URL") ||
       env("CASINO_API_URL") ||
       "https://api.casinoapipro.com/v1";
 
-    const apiKey = env("CASINO_API_KEY");
-    const apiSecret = env("CASINO_API_SECRET");
+    const apiKey = env("CASINOAPIPRO_API_KEY") || env("CASINO_API_KEY");
+    const apiSecret = env("CASINOAPIPRO_API_SECRET") || env("CASINO_API_SECRET");
 
     if (!apiKey || !apiSecret) {
       throw conflict(
@@ -210,6 +213,43 @@ const casinoApiProAdapter: GameAdapter = {
       );
     }
 
+    const playerId = i.user?.id ?? `demo_${createHash("sha256").update(i.ip).digest("hex").slice(0, 24)}`;
+    const currency = env("CASINOAPIPRO_CURRENCY") || "USD";
+
+    // The sandbox wallet needs a play-money player before the first session.
+    // Look it up first so reopening a game never tops up the player again.
+    if (apiKey.startsWith("ck_test_")) {
+      const playerUrl = `${base}/players/${encodeURIComponent(playerId)}`;
+      const playerResponse = await fetch(playerUrl, {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(12000),
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!playerResponse) throw conflict("Casino API Pro player service is not reachable.");
+      if (playerResponse.status === 404) {
+        const createPlayerResponse = await fetch(`${base}/sandbox/players`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ player_id: playerId, currency, balance: "1000.00" }),
+          signal: AbortSignal.timeout(12000),
+          cache: "no-store",
+        }).catch(() => null);
+
+        if (!createPlayerResponse) throw conflict("Casino API Pro sandbox wallet is not reachable.");
+        if (!createPlayerResponse.ok) {
+          const errorData = (await createPlayerResponse.json().catch(() => ({}))) as Record<string, unknown>;
+          throw conflict(String(errorData.message || errorData.error || "Casino API Pro sandbox player could not be created."));
+        }
+      } else if (!playerResponse.ok) {
+        throw conflict("Casino API Pro player lookup failed.");
+      }
+    }
+
     // Create game session
     let sessionResponse: Response;
 
@@ -226,9 +266,8 @@ const casinoApiProAdapter: GameAdapter = {
           },
           body: JSON.stringify({
             game_id: i.game.integrationRef,
-            player_id: i.user?.id,
-            currency:
-              i.user?.currency || "EUR",
+            player_id: playerId,
+            currency,
             player_name:
               i.user?.name,
             return_url:
@@ -301,6 +340,7 @@ const casinoApiProAdapter: GameAdapter = {
     return {
       url: launchUrl,
       display: "iframe",
+      mode: apiKey.startsWith("ck_test_") ? "demo" : i.mode,
     };
   },
 };

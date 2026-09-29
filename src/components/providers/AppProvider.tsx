@@ -285,12 +285,12 @@ export function AppProvider({
       }
       try {
         const device = typeof window !== "undefined" && window.innerWidth < 768 ? "mobile" : "desktop";
-        const r = await api<{ launchUrl: string; display: "iframe" | "redirect"; title: string }>("/api/games/launch", { body: { slug: game.id, mode, device } });
-        if (mode === "real") setRecent((prev) => [game.id, ...prev.filter((x) => x !== game.id)].slice(0, 12));
+        const r = await api<{ launchUrl: string; display: "iframe" | "redirect"; title: string; mode: "real" | "demo" }>("/api/games/launch", { body: { slug: game.id, mode, device } });
+        if (r.mode === "real") setRecent((prev) => [game.id, ...prev.filter((x) => x !== game.id)].slice(0, 12));
         setPreviewGame(null);
         setPreviewTable(null);
         if (r.display === "redirect") window.location.href = r.launchUrl;
-        else setActiveGame({ title: r.title, url: r.launchUrl, mode });
+        else setActiveGame({ title: r.title, url: r.launchUrl, mode: r.mode });
       } catch (e) {
         notify({ title: "Unable to launch game", description: errMsg(e), tone: "info" });
       }

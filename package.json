@@ -6,7 +6,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sync:casinoapipro": "tsx src/db/sync-casinoapipro.ts"
   },
   "dependencies": {
     "@types/qrcode": "^1.5.6",

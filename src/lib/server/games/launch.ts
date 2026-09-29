@@ -64,5 +64,5 @@ export async function launchGame(req: Request, opts: { slug: string; mode: "real
       .onConflictDoUpdate({ target: [recentlyPlayed.userId, recentlyPlayed.gameId], set: { lastPlayedAt: new Date(), playCount: sql`${recentlyPlayed.playCount} + 1` } });
   }
   await db.update(games).set({ playCount: sql`${games.playCount} + 1` }).where(eq(games.id, row.g.id));
-  return { launchUrl: result.url, display: result.display, title: row.g.name, adapter: adapter.code };
+  return { launchUrl: result.url, display: result.display, title: row.g.name, adapter: adapter.code, mode: result.mode ?? opts.mode };
 }
