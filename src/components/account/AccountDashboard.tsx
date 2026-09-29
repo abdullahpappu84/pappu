@@ -2,7 +2,7 @@
 
 import { Bell, Crown, FileCheck2, Gift, Heart, Headset, LayoutDashboard, LogOut, Receipt, ShieldCheck, User, Users, Wallet, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useApp } from "@/components/providers/AppProvider";
 import { Avatar } from "@/components/header/HeaderMenus";
 import { Button } from "@/components/ui/Button";
@@ -82,6 +82,13 @@ export function AccountDashboard() {
   const router = useRouter();
   const tab = useSearchParams().get("tab") ?? "overview";
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const activeTabRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      activeTabRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }
+  }, [current.id]);
 
   if (!user)
     return (
@@ -110,12 +117,13 @@ export function AccountDashboard() {
               </div>
             </div>
           </div>
-          <nav aria-label="Account" className="-mx-4 mt-0 flex gap-1.5 overflow-x-auto px-4 pb-1 no-scrollbar lg:mx-0 lg:mt-3 lg:flex-col lg:overflow-visible lg:px-0">
+          <nav aria-label="Account" className="-mx-4 mt-0 flex snap-x snap-mandatory gap-1.5 overflow-x-auto px-4 pb-1 no-scrollbar lg:mx-0 lg:mt-3 lg:flex-col lg:overflow-visible lg:px-0">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
+                ref={current.id === id ? activeTabRef : undefined}
                 onClick={() => router.push(`/account?tab=${id}`, { scroll: false })}
-                className={`flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-[13px] font-medium transition lg:w-full ${
+                className={`flex shrink-0 snap-start items-center gap-2.5 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-[13px] font-medium transition lg:w-full ${
                   current.id === id ? "bg-gold-400/15 text-gold-200 ring-1 ring-gold-300/40" : "text-white/70 hover:bg-white/5 hover:text-white"
                 }`}
               >
