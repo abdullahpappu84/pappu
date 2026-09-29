@@ -55,8 +55,8 @@ export function BonusesTab() {
   return (
     <div className="space-y-4">
       <Card title="Redeem a promo code" icon={<Gift className="h-5 w-5" />}>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input className={`${inputCls} uppercase`} value={code} onChange={(e) => setCode(e.target.value)} placeholder="Enter promo code" />
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+          <input className={`${inputCls} min-w-0 flex-1 uppercase`} value={code} onChange={(e) => setCode(e.target.value)} placeholder="Enter promo code" />
           <Button variant="outline" onClick={validate} disabled={!code}>
             Validate
           </Button>
@@ -74,19 +74,19 @@ export function BonusesTab() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {active.map((b) => (
-              <div key={b.id} className="rounded-2xl border border-gold-300/25 bg-gradient-to-br from-gold-400/[0.08] to-transparent p-4">
+              <div key={b.id} className="min-w-0 rounded-2xl border border-gold-300/25 bg-gradient-to-br from-gold-400/[0.08] to-transparent p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-[14px] font-semibold text-white">{b.name}</p>
-                    <p className="text-[11.5px] capitalize text-white/45">{b.type.replace(/_/g, " ")} · expires {fmtDate(b.expiresAt, false)}</p>
+                  <div className="min-w-0">
+                    <p className="break-words text-[14px] font-semibold text-white">{b.name}</p>
+                    <p className="break-words text-[11.5px] capitalize text-white/45">{b.type.replace(/_/g, " ")} · expires {fmtDate(b.expiresAt, false)}</p>
                   </div>
                   <p className="font-display text-[24px] font-semibold text-gold-gradient">{money(b.amount, sym)}</p>
                 </div>
                 {b.freeSpins > 0 && <p className="mt-1 text-[12px] text-gold-200">+ {b.freeSpins} free spins</p>}
-                <div className="mt-3 grid grid-cols-3 gap-2 text-[11.5px]">
-                  <div><p className="text-white/45">Required</p><p className="font-semibold text-white">{money(b.wageringRequired, sym)}</p></div>
-                  <div><p className="text-white/45">Completed</p><p className="font-semibold text-white">{money(b.wageringCompleted, sym)}</p></div>
-                  <div><p className="text-white/45">Remaining</p><p className="font-semibold text-white">{money(b.remaining, sym)}</p></div>
+                <div className="mt-3 grid min-w-0 grid-cols-3 gap-2 text-[11.5px]">
+                  <div className="min-w-0"><p className="text-white/45">Required</p><p className="break-words font-semibold text-white">{money(b.wageringRequired, sym)}</p></div>
+                  <div className="min-w-0"><p className="text-white/45">Completed</p><p className="break-words font-semibold text-white">{money(b.wageringCompleted, sym)}</p></div>
+                  <div className="min-w-0"><p className="text-white/45">Remaining</p><p className="break-words font-semibold text-white">{money(b.remaining, sym)}</p></div>
                 </div>
                 <div className="mt-3 flex items-center gap-3">
                   <Progress value={b.progress} className="flex-1" />

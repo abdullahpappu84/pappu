@@ -233,7 +233,7 @@ export function WithdrawTab() {
           <Spinner />
         ) : (
           <form onSubmit={submit} className="min-w-0 space-y-4">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
               {data.items.map((m) => (
                 <button type="button" key={m.id} onClick={() => { setPmId(m.id); setDetails({}); }} className={`min-w-0 w-full rounded-xl border px-3 py-3 text-left transition ${pm?.id === m.id ? "border-gold-300/70 bg-gold-400/10" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}>
                   <p className="break-words text-[13px] font-semibold text-white">{m.name}</p>

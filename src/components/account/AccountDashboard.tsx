@@ -99,7 +99,7 @@ export function AccountDashboard() {
 
   return (
     <main className="container-x py-5 lg:py-8">
-      <div className="grid gap-5 lg:grid-cols-[260px_1fr] xl:gap-7">
+      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)] xl:gap-7">
         <aside className="lg:sticky lg:top-[88px] lg:self-start">
           <div className="panel hidden rounded-2xl p-4 lg:block">
             <div className="flex items-center gap-3">
@@ -128,7 +128,7 @@ export function AccountDashboard() {
             </button>
           </nav>
         </aside>
-        <section>
+        <section className="min-w-0">
           <h1 className="mb-4 font-display text-[28px] font-semibold uppercase tracking-wide text-white md:text-[32px]">{current.label}</h1>
           {current.render()}
         </section>
