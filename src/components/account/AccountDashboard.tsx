@@ -99,8 +99,8 @@ export function AccountDashboard() {
 
   return (
     <main className="container-x py-5 lg:py-8">
-      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)] xl:gap-7">
-        <aside className="lg:sticky lg:top-[88px] lg:self-start">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[260px_minmax(0,1fr)] xl:gap-7">
+        <aside className="min-w-0 lg:sticky lg:top-[88px] lg:self-start">
           <div className="panel hidden rounded-2xl p-4 lg:block">
             <div className="flex items-center gap-3">
               <Avatar name={user.name} url={user.avatarUrl} className="h-11 w-11 text-[14px]" />
