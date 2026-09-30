@@ -120,6 +120,40 @@ const aggregatorAdapter: GameAdapter = {
     return { url, display: env("GAME_DISPLAY") === "redirect" ? "redirect" : "iframe" };
   },
 };
+
+/** BigBang sandbox: launch catalog games in demo mode using its X-API-Key contract. */
+const bigBangAdapter: GameAdapter = {
+  code: "bigbang",
+  label: "BigBang Casino (Sandbox)",
+  async launch(i) {
+    const apiUrl = env("BIGBANG_API_URL") || "https://api.bigbangcasino.bet/api/v1/games";
+    const apiKey = env("BIGBANG_API_KEY");
+    if (!apiKey) throw conflict("BigBang sandbox API is not configured.");
+    if (!i.game.integrationRef) throw conflict(`${i.game.name} has no BigBang game ID.`);
+    const endpoint = apiUrl.replace(/\/games\/?$/, "/games/launch");
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "X-API-Key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ game_id: Number(i.game.integrationRef) || i.game.integrationRef, demo: true }),
+        signal: AbortSignal.timeout(12000),
+        cache: "no-store",
+      });
+    } catch (e) {
+      console.error("[bigbang] launch request failed", e);
+      throw conflict("BigBang sandbox is not reachable.");
+    }
+    const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+    const gameUrl = data.game_url ?? data.gameUrl ?? data.url;
+    if (!res.ok || data.success === false || typeof gameUrl !== "string" || !/^https?:\/\//.test(gameUrl)) {
+      console.error("[bigbang] launch failed", res.status, data);
+      throw conflict(String(data.message ?? data.error ?? "BigBang could not launch this demo game."));
+    }
+    return { url: gameUrl, display: "iframe", mode: "demo" };
+  },
+};
+
 const casinoApiProAdapter: GameAdapter = {
   code: "casino_api_pro",
   label: "Casino API Pro",
@@ -347,6 +381,7 @@ const casinoApiProAdapter: GameAdapter = {
 const REGISTRY: Record<string, GameAdapter> = {
   [directAdapter.code]: directAdapter,
   [aggregatorAdapter.code]: aggregatorAdapter,
+  [bigBangAdapter.code]: bigBangAdapter,
   [casinoApiProAdapter.code]: casinoApiProAdapter,
 };
 

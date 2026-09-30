@@ -8,7 +8,7 @@ import * as t from "@/db/schema";
 import { PERMISSIONS } from "@/lib/permissions";
 import { can, requireAdmin, type AdminContext } from "../auth";
 import { approveDeposit, rejectDeposit, runCashback, setCommissionStatus, updateWithdrawalStatus } from "../finance";
-import { assertSameOrigin, badRequest, errorResponse, forbidden, getIp, matchRoute, notFound, pageParams, query, readJson, toResponse, type Route } from "../http";
+import { assertSameOrigin, badRequest, conflict, errorResponse, forbidden, getIp, matchRoute, notFound, pageParams, query, readJson, toResponse, type Route } from "../http";
 import { applyLedger, audit, grantBonus, notify, toCents } from "../ledger";
 import { listPaymentAdapters } from "../payments";
 import { DEFAULT_SETTINGS, getSettings, updateSetting, type SettingsKey } from "../settings";
@@ -56,6 +56,48 @@ const TX_TYPES = t.txType.enumValues;
 const SETTINGS_PERM: Record<string, string> = { withdrawal: "finance.settings", deposit: "finance.settings", referral: "affiliates.manage", vip: "bonuses.manage" };
 
 const routes: Route<C>[] = [
+  {
+    method: "POST",
+    path: "bigbang/sync-games",
+    perm: "games.edit",
+    handler: async ({ ctx, ip }) => {
+      const apiKey = process.env.BIGBANG_API_KEY?.trim();
+      const url = process.env.BIGBANG_API_URL?.trim() || "https://api.bigbangcasino.bet/api/v1/games";
+      if (!apiKey) throw conflict("BigBang sandbox API key is not configured.");
+      let response: Response;
+      try {
+        response = await fetch(url, { headers: { "X-API-Key": apiKey, Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(15000) });
+      } catch {
+        throw conflict("BigBang game catalog is not reachable.");
+      }
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+      const data = payload.data;
+      const list = Array.isArray(data) ? data : Array.isArray(payload.games) ? payload.games : data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).games) ? (data as { games: unknown[] }).games : [];
+      if (!response.ok || payload.success === false || !list.length) throw conflict(String(payload.message ?? payload.error ?? "BigBang returned no games."));
+
+      let imported = 0;
+      for (const item of list) {
+        if (!item || typeof item !== "object") continue;
+        const g = item as Record<string, unknown>;
+        const id = g.id ?? g.game_id;
+        if (id === undefined || id === null) continue;
+        const name = String(g.title ?? g.name ?? `BigBang game ${id}`).slice(0, 120);
+        const vendor = String(g.provider ?? "BigBang").trim() || "BigBang";
+        const providerSlug = vendor.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 70) || "bigbang";
+        let [provider] = await db.select().from(t.providers).where(eq(t.providers.slug, providerSlug)).limit(1);
+        if (!provider) [provider] = await db.insert(t.providers).values({ name: vendor.slice(0, 80), slug: providerSlug, adapter: "bigbang", isActive: true }).onConflictDoNothing().returning();
+        if (!provider) [provider] = await db.select().from(t.providers).where(eq(t.providers.slug, providerSlug)).limit(1);
+        if (!provider) continue;
+        if (provider.adapter !== "bigbang") await db.update(t.providers).set({ adapter: "bigbang" }).where(eq(t.providers.id, provider.id));
+        const slug = `bigbang-${String(id).toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`.slice(0, 120);
+        await db.insert(t.games).values({ name, slug, providerId: provider.id, integrationRef: String(id).slice(0, 120), thumbnail: typeof g.image === "string" ? g.image : typeof g.thumbnail === "string" ? g.thumbnail : null, status: "active", sortOrder: imported })
+          .onConflictDoUpdate({ target: t.games.slug, set: { name, providerId: provider.id, integrationRef: String(id).slice(0, 120), status: "active" } });
+        imported++;
+      }
+      await audit(db, actor(ctx), { action: "games.bigbang_sync", targetType: "provider", targetId: "bigbang", description: `Imported ${imported} BigBang sandbox games`, ip });
+      return { ok: true, imported };
+    },
+  },
   /* ------------------------------ meta & dashboard ------------------------------ */
   {
     method: "GET",
