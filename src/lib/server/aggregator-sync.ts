@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNotNull, notInArray, or } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { games, providers } from "@/db/schema";
 import { listAllAggregatorGames, listAggregatorProviders, type AggregatorGame } from "@/lib/aggregator";
@@ -14,12 +14,16 @@ export async function syncAggregatorCatalog() {
   const providerByCode = new Map<string, number>();
   const upsertProvider = async (code: string, metadata?: Record<string, unknown>, registered?: boolean) => {
     const slug = `aggregator-${slugify(code)}`;
+    const normalizedCode = code.trim().toLowerCase();
     const [existing] = await db.select({ id: providers.id, slug: providers.slug }).from(providers)
-      .where(or(eq(providers.slug, slug), eq(providers.name, code))).limit(1);
-    if (existing) {
-      await db.update(providers).set({ adapter: "aggregator", ...(metadata ? { aggregatorMetadata: metadata } : {}), updatedAt: new Date() }).where(eq(providers.id, existing.id));
-      return existing.id;
-    }
+      .where(or(
+        eq(providers.slug, slug),
+        sql`lower(${providers.slug}) = ${normalizedCode}`,
+        sql`lower(${providers.name}) = ${normalizedCode}`,
+        sql`${providers.aggregatorMetadata}->>'provider_code' = ${code}`,
+      )).limit(1);
+    // An existing provider's local label, adapter, enabled flag and other settings belong to Admin.
+    if (existing) return existing.id;
     const [created] = await db.insert(providers).values({
       name: code, slug, adapter: "aggregator", isActive: registered !== false,
       aggregatorMetadata: metadata ?? null,
@@ -37,37 +41,53 @@ export async function syncAggregatorCatalog() {
     providerByCode.set(code, await upsertProvider(code));
   }
 
-  const existingRows = catalog.length ? await db.select({ id: games.id, aggregatorGameId: games.aggregatorGameId, slug: games.slug, aggregatorAvailable: games.aggregatorAvailable }).from(games).where(inArray(games.aggregatorGameId, catalog.map(g => g.id))) : [];
-  const existing = new Map(existingRows.map(x => [x.aggregatorGameId!, x]));
+  const catalogIds = catalog.map((g) => g.id).filter(Boolean);
+  const providerCodes = [...new Set(catalog.map((g) => g.provider_code).filter((x): x is string => Boolean(x)))];
+  const providerGameIds = [...new Set(catalog.map((g) => g.provider_game_id).filter((x): x is string => Boolean(x)))];
+  const existingRows = catalogIds.length ? await db.select({
+    id: games.id, name: games.name, slug: games.slug, providerId: games.providerId,
+    aggregatorGameId: games.aggregatorGameId, integrationRef: games.integrationRef,
+    providerGameId: games.providerGameId, providerCode: games.providerCode,
+    thumbnail: games.thumbnail,
+  }).from(games).where(or(
+    inArray(games.aggregatorGameId, catalogIds),
+    inArray(games.integrationRef, catalogIds),
+    ...(providerCodes.length && providerGameIds.length ? [and(inArray(games.providerCode, providerCodes), inArray(games.providerGameId, providerGameIds))] : []),
+  )) : [];
   let created = 0, updated = 0, failed = 0;
-  const seen: string[] = [];
+  const matchedIds = new Set<number>();
   for (const g of catalog) {
     try {
       if (!g.id || !g.name || !g.provider_code) throw new Error("required catalog fields missing");
-      const old = existing.get(g.id);
+      const old = existingRows.find((row) => !matchedIds.has(row.id) && (
+        row.aggregatorGameId === g.id || row.integrationRef === g.id ||
+        (row.providerCode?.toLowerCase() === g.provider_code.toLowerCase() && row.providerGameId === g.provider_game_id)
+      ));
       const providerId = providerByCode.get(g.provider_code) ?? null;
-      const values = toGameValues(g, providerId, old?.slug ?? `agg-${slugify(g.id)}`);
-      await db.insert(games).values({ ...values, slug: old?.slug ?? values.slug }).onConflictDoUpdate({
-        target: games.aggregatorGameId,
-        set: { ...values, slug: old?.slug ?? values.slug, updatedAt: new Date() },
-      });
-      if (old) updated++; else created++;
-      seen.push(g.id);
+      if (old) {
+        const repair = {
+          providerId,
+          aggregatorGameId: g.id,
+          integrationRef: old.integrationRef ?? g.id,
+          providerGameId: g.provider_game_id ?? old.providerGameId,
+          providerCode: g.provider_code,
+          thumbnail: g.thumbnail_url ?? old.thumbnail,
+          updatedAt: new Date(),
+        };
+        await db.update(games).set(repair).where(eq(games.id, old.id));
+        matchedIds.add(old.id);
+        updated++;
+      } else {
+        const values = toGameValues(g, providerId, `agg-${slugify(g.id)}`);
+        await db.insert(games).values(values);
+        created++;
+      }
     } catch (e) {
       failed++;
       console.error("[aggregator-sync] catalog record failed", g.id || "unknown", e instanceof Error ? e.message : "unknown error");
     }
   }
-  // Do not deactivate on a record-level partial failure: retry after correcting the bad record.
-  let deactivated = 0;
-  if (!failed && catalog.length) {
-    const stale = await db.update(games).set({ aggregatorAvailable: false, updatedAt: new Date() })
-      .where(and(eq(games.aggregatorAvailable, true), isNotNull(games.aggregatorGameId), notInArray(games.aggregatorGameId, seen)))
-      .returning({ id: games.id });
-    deactivated = stale.length;
-    if (seen.length) await db.update(games).set({ aggregatorAvailable: true, updatedAt: new Date() }).where(inArray(games.aggregatorGameId, seen));
-  }
-  return { totalFetched: catalog.length, newGames: created, updatedGames: updated, deactivatedGames: deactivated, failedRecords: failed };
+  return { totalFetched: catalog.length, newGames: created, updatedGames: updated, deactivatedGames: 0, failedRecords: failed };
 }
 
 function toGameValues(g: AggregatorGame, providerId: number | null, slug: string) {

@@ -58,6 +58,47 @@ const TX_TYPES = t.txType.enumValues;
 const SETTINGS_PERM: Record<string, string> = { withdrawal: "finance.settings", deposit: "finance.settings", referral: "affiliates.manage", vip: "bonuses.manage" };
 
 const routes: Route<C>[] = [
+  {
+    method: "GET",
+    path: "providers/:id/games",
+    perm: "games.view",
+    handler: async ({ params }) => {
+      const providerId = Number(params.id);
+      if (!Number.isInteger(providerId) || providerId <= 0) throw badRequest("Invalid provider.");
+      const [provider] = await db.select({ id: t.providers.id, name: t.providers.name }).from(t.providers).where(eq(t.providers.id, providerId));
+      if (!provider) throw notFound("Provider not found.");
+      const items = await db.select({ id: t.games.id, name: t.games.name, thumbnail: t.games.thumbnail, status: t.games.status, providerGameId: t.games.providerGameId, aggregatorGameId: t.games.aggregatorGameId })
+        .from(t.games).where(eq(t.games.providerId, providerId)).orderBy(asc(t.games.name));
+      const links = items.length ? await db.select({ gameId: t.gameCategories.gameId, categoryId: t.gameCategories.categoryId }).from(t.gameCategories).where(inArray(t.gameCategories.gameId, items.map((g) => g.id))) : [];
+      const categoryItems = await db.select({ id: t.categories.id, name: t.categories.name, isActive: t.categories.isActive }).from(t.categories).orderBy(asc(t.categories.sortOrder), asc(t.categories.name));
+      return {
+        provider,
+        games: items.map((game) => ({ ...game, categoryIds: links.filter((link) => link.gameId === game.id).map((link) => link.categoryId) })),
+        categories: categoryItems,
+      };
+    },
+  },
+  {
+    method: "POST",
+    path: "providers/:id/games/categories",
+    perm: "games.edit",
+    handler: async ({ ctx, params, req, ip }) => {
+      const providerId = Number(params.id);
+      if (!Number.isInteger(providerId) || providerId <= 0) throw badRequest("Invalid provider.");
+      const body = await readJson(req, z.object({ gameIds: z.array(z.number().int().positive()).min(1).max(250), categoryId: z.number().int().positive() }));
+      const [provider] = await db.select({ id: t.providers.id, name: t.providers.name }).from(t.providers).where(eq(t.providers.id, providerId));
+      if (!provider) throw notFound("Provider not found.");
+      const [category] = await db.select({ id: t.categories.id, name: t.categories.name }).from(t.categories).where(eq(t.categories.id, body.categoryId));
+      if (!category) throw notFound("Category not found.");
+      const selected = await db.select({ id: t.games.id }).from(t.games).where(and(eq(t.games.providerId, providerId), inArray(t.games.id, body.gameIds)));
+      if (selected.length !== new Set(body.gameIds).size) throw badRequest("Every selected game must belong to this provider.");
+      await db.transaction(async (tx) => {
+        await tx.insert(t.gameCategories).values(selected.map((game) => ({ gameId: game.id, categoryId: category.id }))).onConflictDoNothing();
+        await audit(tx, actor(ctx), { action: "providers.games.assign_category", targetType: "category", targetId: String(category.id), description: `Assigned ${selected.length} ${provider.name} game(s) to ${category.name}`, ip });
+      });
+      return { assigned: selected.length, category: category.name };
+    },
+  },
   { method: "POST", path: "aggregator/test-connection", perm: "games.edit", handler: async () => testAggregatorConnection() },
   { method: "POST", path: "aggregator/sync", perm: "games.edit", handler: async () => syncAggregatorCatalog() },
   /* ------------------------------ meta & dashboard ------------------------------ */

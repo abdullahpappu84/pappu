@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Eye, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -9,6 +9,7 @@ import { api, errMsg, fmtDate } from "@/lib/api";
 import { ICON_NAMES } from "@/lib/icons";
 import type { FieldDef, ResourceDef } from "@/lib/admin/resources";
 import type { AdminMe } from "./AdminApp";
+import { ProviderGamesDialog } from "./ProviderGamesDialog";
 
 type Row = Record<string, unknown> & { id: string | number };
 type ListResp = { items: Row[]; total: number; page: number; pageSize: number; options: Record<string, { value: string; label: string }[]>; canEdit: boolean; canCreate: boolean; canDelete: boolean };
@@ -126,6 +127,7 @@ export function ResourceManager({ resource: def, me }: { resource: ResourceDef; 
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [providerGames, setProviderGames] = useState<Row | null>(null);
   void me;
 
   const load = async () => {
@@ -198,6 +200,7 @@ export function ResourceManager({ resource: def, me }: { resource: ResourceDef; 
             <tr key={String(row.id)} className="text-white/80">
               {def.columns.map((c) => <td key={c.name}><Cell type={c.type} v={row[c.name]} /></td>)}
               <td className="whitespace-nowrap text-right">
+                {def.key === "providers" && <button onClick={() => setProviderGames(row)} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-gold-200" aria-label={`View games for ${String(row.name)}`} title="View Games"><Eye className="h-3.5 w-3.5" /></button>}
                 {data.canEdit && <button onClick={() => open(row)} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-gold-200" aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
                 {data.canDelete && <button onClick={() => remove(row)} className="inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-rose-300" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
               </td>
@@ -226,6 +229,7 @@ export function ResourceManager({ resource: def, me }: { resource: ResourceDef; 
           </div>
         </div>
       </Modal>
+      {providerGames && <ProviderGamesDialog key={String(providerGames.id)} providerId={Number(providerGames.id)} canEdit={data?.canEdit ?? false} onClose={() => setProviderGames(null)} />}
     </Card>
   );
 }
