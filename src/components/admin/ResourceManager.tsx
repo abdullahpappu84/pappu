@@ -122,6 +122,7 @@ function Cell({ type, v }: { type?: string; v: unknown }) {
 export function ResourceManager({ resource: def, me }: { resource: ResourceDef; me: AdminMe }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
+  const [providerFilter, setProviderFilter] = useState("");
   const [data, setData] = useState<ListResp | null>(null);
   const [editing, setEditing] = useState<Row | "new" | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
@@ -132,7 +133,7 @@ export function ResourceManager({ resource: def, me }: { resource: ResourceDef; 
 
   const load = async () => {
     try {
-      setData(await api<ListResp>(`/api/admin/resources/${def.key}?q=${encodeURIComponent(q)}&page=${page}`));
+      setData(await api<ListResp>(`/api/admin/resources/${def.key}?q=${encodeURIComponent(q)}&page=${page}${def.key === "games" && providerFilter ? `&providerId=${encodeURIComponent(providerFilter)}` : ""}`));
     } catch (e) {
       setError(errMsg(e));
     }
@@ -141,7 +142,7 @@ export function ResourceManager({ resource: def, me }: { resource: ResourceDef; 
     const t = setTimeout(load, 200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def.key, q, page]);
+  }, [def.key, q, page, providerFilter]);
 
   const open = (row: Row | "new") => {
     setEditing(row);
@@ -190,6 +191,10 @@ export function ResourceManager({ resource: def, me }: { resource: ResourceDef; 
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
             <input className={`${inputCls} h-9 w-56 pl-9`} placeholder="Search…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
           </label>
+          {def.key === "games" && <select className={`${inputCls} h-9 w-44`} aria-label="Filter games by provider" value={providerFilter} onChange={(e) => { setProviderFilter(e.target.value); setPage(1); }}>
+            <option value="">All providers</option>
+            {(data?.options.providers ?? []).map((provider) => <option key={provider.value} value={provider.value} className="bg-ink-800">{provider.label}</option>)}
+          </select>}
           {data?.canCreate && <Button size="sm" iconLeft={<Plus className="relative h-4 w-4" />} onClick={() => open("new")}>New</Button>}
         </div>
       }

@@ -72,7 +72,13 @@ const routes: Route<C>[] = [
       const links = items.length ? await db.select({ gameId: t.gameCategories.gameId, categoryId: t.gameCategories.categoryId }).from(t.gameCategories).where(inArray(t.gameCategories.gameId, items.map((g) => g.id))) : [];
       const categoryItems = await db.select({ id: t.categories.id, name: t.categories.name, isActive: t.categories.isActive }).from(t.categories).orderBy(asc(t.categories.sortOrder), asc(t.categories.name));
       return {
-        provider,
+        provider: {
+          ...provider,
+          totalGames: items.length,
+          activeGames: items.filter((game) => game.status === "active").length,
+          inactiveGames: items.filter((game) => game.status === "inactive").length,
+          maintenanceGames: items.filter((game) => game.status === "maintenance").length,
+        },
         games: items.map((game) => ({ ...game, categoryIds: links.filter((link) => link.gameId === game.id).map((link) => link.categoryId) })),
         categories: categoryItems,
       };
@@ -85,18 +91,27 @@ const routes: Route<C>[] = [
     handler: async ({ ctx, params, req, ip }) => {
       const providerId = Number(params.id);
       if (!Number.isInteger(providerId) || providerId <= 0) throw badRequest("Invalid provider.");
-      const body = await readJson(req, z.object({ gameIds: z.array(z.number().int().positive()).min(1).max(250), categoryId: z.number().int().positive() }));
+      const body = await readJson(req, z.object({
+        gameIds: z.array(z.number().int().positive()).min(1).max(5000).optional(),
+        allProviderGames: z.boolean().optional(),
+        categoryId: z.number().int().positive(),
+      }).refine((value) => value.allProviderGames === true || Boolean(value.gameIds?.length), "Select games or choose all provider games."));
       const [provider] = await db.select({ id: t.providers.id, name: t.providers.name }).from(t.providers).where(eq(t.providers.id, providerId));
       if (!provider) throw notFound("Provider not found.");
       const [category] = await db.select({ id: t.categories.id, name: t.categories.name }).from(t.categories).where(eq(t.categories.id, body.categoryId));
       if (!category) throw notFound("Category not found.");
-      const selected = await db.select({ id: t.games.id }).from(t.games).where(and(eq(t.games.providerId, providerId), inArray(t.games.id, body.gameIds)));
-      if (selected.length !== new Set(body.gameIds).size) throw badRequest("Every selected game must belong to this provider.");
+      const selected = body.allProviderGames
+        ? await db.select({ id: t.games.id }).from(t.games).where(eq(t.games.providerId, providerId))
+        : await db.select({ id: t.games.id }).from(t.games).where(and(eq(t.games.providerId, providerId), inArray(t.games.id, body.gameIds ?? [])));
+      if (!body.allProviderGames && selected.length !== new Set(body.gameIds ?? []).size) throw badRequest("Every selected game must belong to this provider.");
       await db.transaction(async (tx) => {
-        await tx.insert(t.gameCategories).values(selected.map((game) => ({ gameId: game.id, categoryId: category.id }))).onConflictDoNothing();
+        // Chunk inserts to stay below PostgreSQL's bind parameter limit for large providers.
+        for (let offset = 0; offset < selected.length; offset += 1000) {
+          await tx.insert(t.gameCategories).values(selected.slice(offset, offset + 1000).map((game) => ({ gameId: game.id, categoryId: category.id }))).onConflictDoNothing();
+        }
         await audit(tx, actor(ctx), { action: "providers.games.assign_category", targetType: "category", targetId: String(category.id), description: `Assigned ${selected.length} ${provider.name} game(s) to ${category.name}`, ip });
       });
-      return { assigned: selected.length, category: category.name };
+      return { assigned: selected.length, category: category.name, allProviderGames: Boolean(body.allProviderGames) };
     },
   },
   { method: "POST", path: "aggregator/test-connection", perm: "games.edit", handler: async () => testAggregatorConnection() },

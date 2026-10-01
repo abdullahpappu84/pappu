@@ -33,12 +33,13 @@ export async function syncAggregatorCatalog() {
   for (const p of registry) {
     const code = p.provider_code;
     if (!code) continue;
-    providerByCode.set(code, await upsertProvider(code, p as unknown as Record<string, unknown>, p.is_registered));
+    providerByCode.set(code.trim().toLowerCase(), await upsertProvider(code, p as unknown as Record<string, unknown>, p.is_registered));
   }
   // Catalog provider codes are authoritative even if an entry is absent from registry.
   for (const code of new Set(catalog.map(g => g.provider_code).filter((x): x is string => !!x))) {
-    if (providerByCode.has(code)) continue;
-    providerByCode.set(code, await upsertProvider(code));
+    const normalizedCode = code.trim().toLowerCase();
+    if (providerByCode.has(normalizedCode)) continue;
+    providerByCode.set(normalizedCode, await upsertProvider(code));
   }
 
   const catalogIds = catalog.map((g) => g.id).filter(Boolean);
@@ -63,7 +64,7 @@ export async function syncAggregatorCatalog() {
         row.aggregatorGameId === g.id || row.integrationRef === g.id ||
         (row.providerCode?.toLowerCase() === g.provider_code.toLowerCase() && row.providerGameId === g.provider_game_id)
       ));
-      const providerId = providerByCode.get(g.provider_code) ?? null;
+      const providerId = providerByCode.get(g.provider_code.trim().toLowerCase()) ?? null;
       if (old) {
         const repair = {
           providerId,
