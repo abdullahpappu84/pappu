@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, createHmac, randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { wallets, type games } from "@/db/schema";
+import { aggregatorGameSessions, wallets, type games } from "@/db/schema";
 import { conflict } from "../http";
 
 /**
@@ -122,6 +122,15 @@ const aggregatorAdapter: GameAdapter = {
     if (!res.ok || !url) {
       console.error("[games] Aggregator session failed", res.status, typeof data.error === "object" ? data.error?.message : "request rejected");
       throw conflict((typeof data.error === "object" ? data.error?.message : undefined) || "The game could not be launched.");
+    }
+    if (i.mode === "real") {
+      const sessionId = typeof data.session_id === "string" ? data.session_id : "";
+      if (!sessionId || !i.user) throw conflict("Aggregator session response is missing its session ID.");
+      await db.insert(aggregatorGameSessions).values({
+        aggregatorSessionId: sessionId,
+        aggregatorPlayerId: i.user.id,
+        userId: i.user.id,
+      });
     }
     return { url, display: "redirect" };
   },

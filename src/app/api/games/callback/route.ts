@@ -1,9 +1,9 @@
 import { createHmac } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { users, wallets } from "@/db/schema";
+import { aggregatorGameSessions, users, wallets } from "@/db/schema";
 import { safeEqual } from "@/lib/server/crypto";
 import { processGameEvent } from "@/lib/server/finance";
 import { ApiError, errorResponse, getIp } from "@/lib/server/http";
@@ -18,6 +18,7 @@ const aggregatorSchema = z.object({
   amount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   currency: z.string().regex(/^[A-Z]{3}$/),
   player_id: z.string().min(1).max(128),
+  session_id: z.string().min(1).max(64).optional(),
   provider_code: z.string().min(1).max(40),
   game: z.string().max(120).optional(),
   game_id: z.string().max(120).optional(),
@@ -69,7 +70,16 @@ export async function POST(req: Request) {
     const parsedAggregator = aggregatorSchema.safeParse(payload);
     if (parsedAggregator.success) {
       const b = parsedAggregator.data;
-      const [u] = await db.select({ id: users.id, status: users.status }).from(users).where(eq(users.id, b.player_id));
+      const [directUser] = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.player_id)
+        ? await db.select({ id: users.id, status: users.status }).from(users).where(eq(users.id, b.player_id))
+        : [];
+      const [sessionUser] = !directUser && b.session_id
+        ? await db.select({ id: users.id, status: users.status })
+            .from(aggregatorGameSessions)
+            .innerJoin(users, eq(users.id, aggregatorGameSessions.userId))
+            .where(and(eq(aggregatorGameSessions.aggregatorSessionId, b.session_id), eq(aggregatorGameSessions.aggregatorPlayerId, b.player_id)))
+        : [];
+      const u = directUser ?? sessionUser;
       if (!u) return replyError(404, "PLAYER_NOT_FOUND", "Player not found.");
       const before = await walletState(u.id);
       if (before.currency !== b.currency) return replyError(400, "CURRENCY_MISMATCH", "Callback currency does not match wallet currency.", before.balance, before.currency);

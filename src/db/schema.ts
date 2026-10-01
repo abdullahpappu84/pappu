@@ -324,6 +324,20 @@ export const recentlyPlayed = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.gameId] }), index("recent_user_time_idx").on(t.userId, t.lastPlayedAt)],
 );
 
+/** Maps the player identifier sent to Aggregator.gg to the local account for each session. */
+export const aggregatorGameSessions = pgTable(
+  "aggregator_game_sessions",
+  {
+    aggregatorSessionId: varchar("aggregator_session_id", { length: 64 }).primaryKey(),
+    aggregatorPlayerId: varchar("aggregator_player_id", { length: 128 }).notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: ts("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("aggregator_game_sessions_player_idx").on(t.aggregatorPlayerId, t.aggregatorSessionId)],
+);
+
 /* ============================== WALLET / LEDGER ============================== */
 export const wallets = pgTable(
   "wallets",
