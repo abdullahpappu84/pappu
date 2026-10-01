@@ -21,6 +21,7 @@ export const verifyGameToken = (token: string) => {
 export async function launchGame(req: Request, opts: { slug: string; mode: "real" | "demo"; device?: "desktop" | "mobile"; user: UserRow | null }) {
   const [row] = await db.select({ g: games, provider: providers }).from(games).leftJoin(providers, eq(providers.id, games.providerId)).where(eq(games.slug, opts.slug));
   if (!row || row.g.status === "inactive" || (row.provider && !row.provider.isActive)) throw notFound("Game not found.");
+  if (row.g.aggregatorGameId && !row.g.aggregatorAvailable) throw notFound("Game is no longer available.");
   if (row.g.status === "maintenance") throw conflict(`${row.g.name} is under maintenance. Please try again later.`);
 
   const { user } = opts;

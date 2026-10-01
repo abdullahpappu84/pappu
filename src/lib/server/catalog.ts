@@ -20,9 +20,9 @@ import type { UserRow } from "./auth";
 
 type GameRow = typeof games.$inferSelect;
 
-export function toGameDTO(g: GameRow, provider: string | null, cats: string[]): GameDTO {
+export function toGameDTO(g: GameRow, provider: string | null, cats: string[], actualPopular = false): GameDTO {
   const derived = new Set(cats);
-  if (g.isPopular) derived.add("popular");
+  if (g.isPopular || actualPopular) derived.add("popular");
   if (g.isNew) derived.add("new");
   return {
     id: g.slug,
@@ -30,12 +30,14 @@ export function toGameDTO(g: GameRow, provider: string | null, cats: string[]): 
     title: g.name,
     provider: provider ?? "Aurum Studios",
     categories: [...derived],
+    popularity: g.playCount,
+    hasDemo: g.hasDemo,
     image: g.thumbnail ?? undefined,
     mobileImage: g.mobileThumbnail ?? undefined,
     art: g.art ?? undefined,
     badge: (g.badge as GameDTO["badge"]) ?? undefined,
-    rtp: Number(g.rtp),
-    volatility: g.volatility,
+    rtp: Number(g.rtp ?? 0),
+    volatility: g.volatility ?? "Unknown",
     maxWin: g.maxWin,
     displayType: g.displayType,
     status: g.status,
@@ -53,7 +55,7 @@ export async function loadGames(where = ne(games.status, "inactive")): Promise<G
     .select({ g: games, provider: providers.name })
     .from(games)
     .leftJoin(providers, eq(providers.id, games.providerId))
-    .where(and(where, or(isNull(games.providerId), eq(providers.isActive, true))))
+    .where(and(where, or(isNull(games.providerId), eq(providers.isActive, true)), or(isNull(games.aggregatorGameId), eq(games.aggregatorAvailable, true))))
     .orderBy(asc(games.sortOrder), asc(games.id));
   if (!rows.length) return [];
   const links = await db
@@ -63,7 +65,8 @@ export async function loadGames(where = ne(games.status, "inactive")): Promise<G
     .where(and(inArray(gameCategories.gameId, rows.map((r) => r.g.id)), eq(categories.isActive, true)));
   const map = new Map<number, string[]>();
   for (const l of links) map.set(l.gameId, [...(map.get(l.gameId) ?? []), l.slug]);
-  return rows.map((r) => toGameDTO(r.g, r.provider, map.get(r.g.id) ?? []));
+  const popularIds = new Set(rows.filter((r) => r.g.playCount > 0).sort((a, b) => b.g.playCount - a.g.playCount).slice(0, 20).map((r) => r.g.id));
+  return rows.map((r) => toGameDTO(r.g, r.provider, map.get(r.g.id) ?? [], popularIds.has(r.g.id)));
 }
 
 export async function loadCatalog(): Promise<CatalogDTO> {

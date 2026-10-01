@@ -3,11 +3,12 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
-import { aggregatorGameSessions, users, wallets } from "@/db/schema";
+import { aggregatorGameSessions, games, users, wallets } from "@/db/schema";
 import { safeEqual } from "@/lib/server/crypto";
 import { processGameEvent } from "@/lib/server/finance";
 import { ApiError, errorResponse, getIp } from "@/lib/server/http";
 import { verifyGameToken } from "@/lib/server/games/launch";
+import { aggregatorCurrencyExponent, assertAggregatorWalletCurrency } from "@/lib/aggregator-money";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,8 @@ const legacySchema = z.object({
 
 async function walletState(userId: string) {
   const [w] = await db.select().from(wallets).where(eq(wallets.userId, userId));
-  return { balance: Math.round((Number(w?.mainBalance ?? 0) + Number(w?.bonusBalance ?? 0)) * 100), currency: w?.currency ?? "EUR" };
+  const currency = w?.currency ?? "EUR";
+  return { balance: Math.round((Number(w?.mainBalance ?? 0) + Number(w?.bonusBalance ?? 0)) * (10 ** aggregatorCurrencyExponent(currency))), currency };
 }
 
 function replyError(status: number, code: string, message: string, balance = 0, currency = "EUR") {
@@ -83,27 +85,25 @@ export async function POST(req: Request) {
       if (!u) return replyError(404, "PLAYER_NOT_FOUND", "Player not found.");
       const before = await walletState(u.id);
       if (before.currency !== b.currency) return replyError(400, "CURRENCY_MISMATCH", "Callback currency does not match wallet currency.", before.balance, before.currency);
+      try { assertAggregatorWalletCurrency(before.currency); } catch { return replyError(400, "UNSUPPORTED_CURRENCY_PRECISION", "This wallet cannot process the currency's minor-unit precision.", before.balance, before.currency); }
       if (u.status !== "active" && b.transaction_type === "bet") return replyError(400, "PLAYER_BLOCKED", "Player is restricted.", before.balance, before.currency);
+      const [catalogGame] = b.game_id
+        ? await db.select({ slug: games.slug }).from(games).where(eq(games.aggregatorGameId, b.game_id))
+        : [];
 
       const eventAction = b.transaction_type === "refund" ? "rollback" : b.transaction_type;
-      if (b.transaction_type === "refund" && b.is_free) {
-        return NextResponse.json({ balance: before.balance, currency: before.currency, player_id: u.id });
-      }
-      if (b.transaction_type === "bet" && b.is_free) {
-        return NextResponse.json({ balance: before.balance, currency: before.currency, player_id: u.id });
-      }
-
       try {
         const result = await processGameEvent({
           action: eventAction,
           userId: u.id,
-          amount: b.amount / 100,
+          amount: b.amount / (10 ** aggregatorCurrencyExponent(b.currency)),
           roundId: b.round_id,
           transactionId: b.transaction_id,
-          originalTransactionId: b.original_transaction_id ?? (b.transaction_type === "refund" ? b.transaction_id : undefined),
-          gameSlug: b.game,
+          originalTransactionId: b.original_transaction_id,
+          gameSlug: catalogGame?.slug,
           idempotencyScope: `aggregator:${b.provider_code}`,
           callbackCurrency: b.currency,
+          isFree: b.is_free,
         });
         const replay = result.transaction?.metadata?.callbackResponse;
         if (result.duplicate && replay && typeof replay === "object") return NextResponse.json(replay);

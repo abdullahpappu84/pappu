@@ -64,14 +64,14 @@ export function PreviewModal() {
               <Stat label="Max Win" value={game.maxWin} />
             </div>
             <div className="grid grid-cols-2 gap-2.5">
-              <Button
+              {game.hasDemo ? <Button
                 variant="outline"
                 size="lg"
                 iconLeft={<MonitorPlay className="h-4 w-4" />}
                 onClick={() => playGame(game, "demo")}
               >
                 Demo
-              </Button>
+              </Button> : <span />}
               <Button size="lg" iconLeft={<Play className="relative h-4 w-4 fill-current" />} disabled={game.status === "maintenance"} onClick={() => playGame(game)}>
                 {game.status === "maintenance" ? "Maintenance" : "Play Now"}
               </Button>

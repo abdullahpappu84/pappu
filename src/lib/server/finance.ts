@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "crypto";
-import { and, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import { db, type Tx } from "@/db";
 import {
   agents,
@@ -549,11 +549,13 @@ export async function runCashback(days: number, actor: AuditActor, ip?: string) 
 }
 
 /* ------------------------------ game provider events ------------------------------ */
-export type GameEvent = { action: "bet" | "win" | "rollback"; userId: string; amount: number; roundId: string; transactionId?: string; originalTransactionId?: string; gameSlug?: string; idempotencyScope?: string; callbackCurrency?: string };
+export type GameEvent = { action: "bet" | "win" | "rollback"; userId: string; amount: number; roundId: string; transactionId?: string; originalTransactionId?: string; gameSlug?: string; idempotencyScope?: string; callbackCurrency?: string; isFree?: boolean };
 
 function gameExternalRef(action: string, key: string, scope?: string) {
   if (!scope) return `game:${action}:${key}`;
   const scoped = createHash("sha256").update(`${scope}\0${key}`).digest("hex");
+  // Aggregator defines identity as integration + provider_code + transaction_id, without action.
+  if (scope.startsWith("aggregator:")) return `game:agg:${scoped}`;
   return `game:agg:${action}:${scoped}`;
 }
 type TxRow = typeof transactions.$inferSelect;
@@ -568,17 +570,20 @@ type TxRow = typeof transactions.$inferSelect;
 export async function processGameEvent(e: GameEvent): Promise<{ duplicate: boolean; transaction: TxRow | null }> {
   const key = e.transactionId ?? e.roundId;
   const ext = gameExternalRef(e.action, key, e.idempotencyScope);
-  const [existing] = await db.select().from(transactions).where(eq(transactions.externalRef, ext));
+    const oldAggregatorRef = e.idempotencyScope?.startsWith("aggregator:") ? `game:agg:${e.action}:${createHash("sha256").update(`${e.idempotencyScope}\0${key}`).digest("hex")}` : null;
+    const [existing] = await db.select().from(transactions).where(oldAggregatorRef ? or(eq(transactions.externalRef, ext), eq(transactions.externalRef, oldAggregatorRef)) : eq(transactions.externalRef, ext));
   if (existing) return { duplicate: true, transaction: existing };
   const cents = toCents(e.amount);
-  if (e.action === "bet" && cents <= 0) throw badRequest("Invalid bet amount.");
-  if (e.action === "win" && cents === 0) return { duplicate: false, transaction: null };
+  if (e.action === "bet" && cents <= 0 && !e.isFree) throw badRequest("Invalid bet amount.");
   if (cents < 0) throw badRequest("Invalid amount.");
 
   return db.transaction(async (tx) => {
-    const w = await lockWallet(tx, e.userId);
-    const [racedDuplicate] = await tx.select().from(transactions).where(eq(transactions.externalRef, ext));
+    // Serialize callbacks by their unique transaction identity before locking a wallet. This also
+    // covers the unlikely case where a retry is delivered with a different player mapping.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${ext}, 0))`);
+    const [racedDuplicate] = await tx.select().from(transactions).where(oldAggregatorRef ? or(eq(transactions.externalRef, ext), eq(transactions.externalRef, oldAggregatorRef)) : eq(transactions.externalRef, ext));
     if (racedDuplicate) return { duplicate: true, transaction: racedDuplicate };
+    const w = await lockWallet(tx, e.userId);
     const [g] = e.gameSlug ? await tx.select({ id: games.id }).from(games).where(eq(games.slug, e.gameSlug)) : [];
     const meta = { roundId: e.roundId, transactionId: e.transactionId, gameSlug: e.gameSlug, gameId: g?.id, idempotencyScope: e.idempotencyScope };
     const on = e.gameSlug ? ` on ${e.gameSlug}` : "";
@@ -596,6 +601,14 @@ export async function processGameEvent(e: GameEvent): Promise<{ duplicate: boole
         .returning();
       return updated;
     };
+    if (e.isFree && e.action === "bet") {
+      const t = await applyLedger(tx, { userId: e.userId, balanceType: "main", amountCents: 0, type: "bet", description: `Free game bet${on}`, externalRef: ext, metadata: { ...meta, isFree: true } });
+      return { duplicate: false, transaction: await rememberCallbackReply(t) };
+    }
+    if (e.isFree && e.action === "rollback") {
+      const t = await applyLedger(tx, { userId: e.userId, balanceType: "main", amountCents: 0, type: "refund", description: `Free game refund${on}`, externalRef: ext, metadata: { ...meta, isFree: true } });
+      return { duplicate: false, transaction: await rememberCallbackReply(t) };
+    }
     const roundBets = () =>
       tx
         .select()
@@ -619,7 +632,10 @@ export async function processGameEvent(e: GameEvent): Promise<{ duplicate: boole
 
     // rollback — reverse the specific bet (by provider transactionId) or all bets of the round
     const originalId = e.originalTransactionId ?? (e.idempotencyScope ? undefined : e.transactionId);
-    const bets = (await roundBets()).filter((b) => (originalId ? b.externalRef === gameExternalRef("bet", originalId, e.idempotencyScope) || (b.metadata?.transactionId === originalId && b.metadata?.idempotencyScope === e.idempotencyScope) : !e.idempotencyScope) && b.status !== "reversed");
+    const roundEntries = (await roundBets()).filter((b) => b.status !== "reversed");
+    const bets = originalId
+      ? roundEntries.filter((b) => b.externalRef === gameExternalRef("bet", originalId, e.idempotencyScope) || (b.metadata?.transactionId === originalId && b.metadata?.idempotencyScope === e.idempotencyScope))
+      : e.idempotencyScope ? (roundEntries.length === 1 ? roundEntries : []) : roundEntries;
     if (!bets.length) return { duplicate: false, transaction: null }; // nothing to roll back (bet never arrived)
     let last: TxRow | null = null;
     for (const b of bets) {

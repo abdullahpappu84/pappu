@@ -18,7 +18,10 @@ export function GameSection() {
   const games = useMemo(() => {
     const standard = allGames.filter((g) => g.displayType === "standard");
     const featured = standard.filter((g) => g.featured);
-    if (isDefault) return expanded ? standard : featured.length ? featured : standard.slice(0, 12);
+    if (isDefault) {
+      const popular = standard.filter((g) => g.categories.includes("popular")).sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
+      return expanded ? standard : popular.length ? popular.slice(0, 12) : featured.length ? featured : standard.slice(0, 12);
+    }
     const q = search.trim().toLowerCase();
     return allGames.filter(
       (g) =>

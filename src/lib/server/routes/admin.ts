@@ -18,6 +18,8 @@ import { appUrl } from "../mailer";
 import { buildPaymentAdapter } from "../integrations/payment";
 import { buildGameAdapter } from "../integrations/game";
 import { clearIntegrationCache, describeSecrets, mergeSecrets, RESERVED_CODES } from "../integrations/store";
+import { syncAggregatorCatalog } from "../aggregator-sync";
+import { testAggregatorConnection } from "@/lib/aggregator";
 import { dateRange, formData } from "./me";
 
 type C = { ctx: AdminContext; ip: string };
@@ -56,6 +58,8 @@ const TX_TYPES = t.txType.enumValues;
 const SETTINGS_PERM: Record<string, string> = { withdrawal: "finance.settings", deposit: "finance.settings", referral: "affiliates.manage", vip: "bonuses.manage" };
 
 const routes: Route<C>[] = [
+  { method: "POST", path: "aggregator/test-connection", perm: "games.edit", handler: async () => testAggregatorConnection() },
+  { method: "POST", path: "aggregator/sync", perm: "games.edit", handler: async () => syncAggregatorCatalog() },
   /* ------------------------------ meta & dashboard ------------------------------ */
   {
     method: "GET",

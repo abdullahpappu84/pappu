@@ -1,0 +1,23 @@
+ALTER TABLE "providers" ADD COLUMN "aggregator_metadata" jsonb;
+ALTER TABLE "providers" ADD COLUMN "updated_at" timestamp with time zone DEFAULT now() NOT NULL;
+
+ALTER TABLE "games" ADD COLUMN "aggregator_game_id" varchar(64);
+ALTER TABLE "games" ADD COLUMN "provider_game_id" varchar(160);
+ALTER TABLE "games" ADD COLUMN "provider_code" varchar(80);
+ALTER TABLE "games" ADD COLUMN "game_type" varchar(80);
+ALTER TABLE "games" ADD COLUMN "aggregator_category" varchar(120);
+ALTER TABLE "games" ADD COLUMN "has_demo" boolean DEFAULT false NOT NULL;
+ALTER TABLE "games" ADD COLUMN "has_mobile" boolean DEFAULT false NOT NULL;
+ALTER TABLE "games" ADD COLUMN "has_desktop" boolean DEFAULT true NOT NULL;
+ALTER TABLE "games" ADD COLUMN "free_rounds_support" boolean DEFAULT false NOT NULL;
+ALTER TABLE "games" ADD COLUMN "blocked_countries" jsonb DEFAULT '[]'::jsonb NOT NULL;
+ALTER TABLE "games" ADD COLUMN "certified_markets" jsonb;
+ALTER TABLE "games" ADD COLUMN "supported_currencies" jsonb DEFAULT '[]'::jsonb NOT NULL;
+ALTER TABLE "games" ADD COLUMN "aggregator_metadata" jsonb;
+ALTER TABLE "games" ADD COLUMN "aggregator_available" boolean DEFAULT true NOT NULL;
+ALTER TABLE "games" ALTER COLUMN "rtp" DROP NOT NULL;
+ALTER TABLE "games" ALTER COLUMN "rtp" DROP DEFAULT;
+ALTER TABLE "games" ALTER COLUMN "volatility" DROP NOT NULL;
+ALTER TABLE "games" ALTER COLUMN "volatility" DROP DEFAULT;
+ALTER TABLE "games" ADD CONSTRAINT "games_aggregator_game_id_unique" UNIQUE("aggregator_game_id");
+CREATE INDEX "games_aggregator_provider_idx" ON "games" USING btree ("provider_code","game_type");

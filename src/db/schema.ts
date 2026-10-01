@@ -228,8 +228,10 @@ export const providers = pgTable("providers", {
   /** Game adapter code: direct | aggregator | custom (see src/lib/server/games/adapters.ts) */
   adapter: varchar("adapter", { length: 40 }).default("direct").notNull(),
   isActive: boolean("is_active").default(true).notNull(),
+  aggregatorMetadata: jsonb("aggregator_metadata").$type<Record<string, unknown>>(),
   sortOrder: integer("sort_order").default(0).notNull(),
   createdAt: created(),
+  updatedAt: updated(),
 });
 
 export const categories = pgTable("categories", {
@@ -262,6 +264,20 @@ export const games = pgTable(
     description: text("description"),
     gameUrl: text("game_url"),
     integrationRef: varchar("integration_ref", { length: 120 }),
+    aggregatorGameId: varchar("aggregator_game_id", { length: 64 }).unique(),
+    providerGameId: varchar("provider_game_id", { length: 160 }),
+    providerCode: varchar("provider_code", { length: 80 }),
+    gameType: varchar("game_type", { length: 80 }),
+    aggregatorCategory: varchar("aggregator_category", { length: 120 }),
+    hasDemo: boolean("has_demo").default(false).notNull(),
+    hasMobile: boolean("has_mobile").default(false).notNull(),
+    hasDesktop: boolean("has_desktop").default(true).notNull(),
+    freeRoundsSupport: boolean("free_rounds_support").default(false).notNull(),
+    blockedCountries: jsonb("blocked_countries").$type<string[]>().default([]).notNull(),
+    certifiedMarkets: jsonb("certified_markets").$type<Record<string, unknown>>(),
+    supportedCurrencies: jsonb("supported_currencies").$type<string[]>().default([]).notNull(),
+    aggregatorMetadata: jsonb("aggregator_metadata").$type<Record<string, unknown>>(),
+    aggregatorAvailable: boolean("aggregator_available").default(true).notNull(),
     displayType: gameDisplay("display_type").default("standard").notNull(),
     status: gameStatus("status").default("active").notNull(),
     isFeatured: boolean("is_featured").default(false).notNull(),
@@ -269,8 +285,8 @@ export const games = pgTable(
     isNew: boolean("is_new").default(false).notNull(),
     isHot: boolean("is_hot").default(false).notNull(),
     badge: varchar("badge", { length: 12 }),
-    rtp: numeric("rtp", { precision: 5, scale: 2 }).default("96.00").notNull(),
-    volatility: varchar("volatility", { length: 16 }).default("Medium").notNull(),
+    rtp: numeric("rtp", { precision: 5, scale: 2 }),
+    volatility: varchar("volatility", { length: 16 }),
     maxWin: varchar("max_win", { length: 32 }).default("1,000x").notNull(),
     art: jsonb("art").$type<GameArtJson>(),
     meta: jsonb("meta").$type<GameMetaJson>(),
@@ -279,7 +295,7 @@ export const games = pgTable(
     createdAt: created(),
     updatedAt: updated(),
   },
-  (t) => [index("games_status_idx").on(t.status), index("games_provider_idx").on(t.providerId)],
+  (t) => [index("games_status_idx").on(t.status), index("games_provider_idx").on(t.providerId), index("games_aggregator_provider_idx").on(t.providerCode, t.gameType)],
 );
 
 export const gameCategories = pgTable(

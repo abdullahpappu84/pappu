@@ -8,6 +8,8 @@ export type GameDTO = {
   title: string;
   provider: string;
   categories: string[];
+  popularity: number;
+  hasDemo: boolean;
   image?: string;
   mobileImage?: string;
   art?: GameArtDTO;

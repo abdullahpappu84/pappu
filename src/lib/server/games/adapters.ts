@@ -3,6 +3,8 @@ import { createHash, createHmac, randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { aggregatorGameSessions, wallets, type games } from "@/db/schema";
+import { AggregatorError, aggregatorRequest } from "@/lib/aggregator";
+import { aggregatorCurrencyExponent, assertAggregatorWalletCurrency } from "@/lib/aggregator-money";
 import { conflict } from "../http";
 
 /**
@@ -89,23 +91,24 @@ const aggregatorAdapter: GameAdapter = {
   code: "aggregator",
   label: "Aggregator.gg",
   async launch(i) {
-    const base = env("GAME_API_URL");
-    const key = env("GAME_API_KEY");
-    if (!base || !key) throw conflict("Game provider API is not configured (GAME_API_URL / GAME_API_KEY).");
-    const aggregatorGameId = i.game.integrationRef;
+    const aggregatorGameId = i.game.aggregatorGameId ?? i.game.integrationRef;
     if (!aggregatorGameId || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(aggregatorGameId)) {
       throw conflict(`${i.game.name} needs The Aggregator catalog game UUID (the catalog id field), not provider_game_id.`);
     }
     const currency = (i.user?.currency ?? env("GAME_DEFAULT_CURRENCY") ?? "EUR").toUpperCase();
+    if (i.mode === "real") assertAggregatorWalletCurrency(currency);
+    if (i.mode === "demo" && !i.game.hasDemo) throw conflict(`${i.game.name} does not support demo sessions.`);
     const path = i.mode === "demo" ? "/demo-sessions" : "/sessions";
     const balance = i.user
       ? await (async () => {
           const [w] = await db.select().from(wallets).where(eq(wallets.userId, i.user!.id));
-          return Math.round((Number(w?.mainBalance ?? 0) + Number(w?.bonusBalance ?? 0)) * 100);
+          return Math.round((Number(w?.mainBalance ?? 0) + Number(w?.bonusBalance ?? 0)) * (10 ** aggregatorCurrencyExponent(currency)));
         })()
       : 0;
     const alpha2 = countryCode(i.country) ?? countryCode(env("GAME_DEFAULT_COUNTRY"));
     if (i.mode === "real" && !alpha2) throw conflict("Set the player's two-letter country or GAME_DEFAULT_COUNTRY for Aggregator sessions.");
+    if (i.mode === "real" && alpha2 && i.game.blockedCountries?.includes(alpha2)) throw conflict("This game is not available in your country.");
+    if (i.mode === "real" && i.game.supportedCurrencies?.length && !i.game.supportedCurrencies.includes(currency)) throw conflict("This game does not support your wallet currency.");
     const body = JSON.stringify(i.mode === "demo" ? { game_id: aggregatorGameId } : {
       game_id: aggregatorGameId,
       player_id: i.user!.id,
@@ -115,23 +118,22 @@ const aggregatorAdapter: GameAdapter = {
       lang: i.language.slice(0, 2).toLowerCase(),
       return_url: i.lobbyUrl,
     });
-    const headers: Record<string, string> = { "Content-Type": "application/json", Authorization: `Bearer ${key}` };
+    const headers: Record<string, string> = {};
     if (i.mode === "real") headers["Idempotency-Key"] = randomUUID();
-    let res: Response;
+    let data: { game_url: string; session_id: string };
     try {
-      res = await fetch(`${base.replace(/\/$/, "")}${path}`, { method: "POST", headers, body, signal: AbortSignal.timeout(12000), cache: "no-store" });
+      ({ data } = await aggregatorRequest<typeof data>(path, { method: "POST", headers, body }));
     } catch (e) {
-      console.error("[games] provider unreachable", e);
-      throw conflict("Game provider is not reachable. Please try again shortly.");
+      if (e instanceof AggregatorError) {
+        console.error("[games] Aggregator session request failed", e.status, e.code ?? "unknown");
+        throw conflict(e.status === 401 ? "Aggregator credentials were rejected." : e.status === 404 ? "The game is unavailable for this Aggregator account." : "Aggregator could not create the game session. Please try again.");
+      }
+      throw e;
     }
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown> & { error?: { message?: string } };
-    const url = data.game_url as string | undefined;
-    if (!res.ok || !url) {
-      console.error("[games] Aggregator session failed", res.status, typeof data.error === "object" ? data.error?.message : "request rejected");
-      throw conflict((typeof data.error === "object" ? data.error?.message : undefined) || "The game could not be launched.");
-    }
+    const url = data.game_url;
+    if (!url) throw conflict("Aggregator returned a session without a game URL.");
     if (i.mode === "real") {
-      const sessionId = typeof data.session_id === "string" ? data.session_id : "";
+      const sessionId = data.session_id;
       if (!sessionId || !i.user) throw conflict("Aggregator session response is missing its session ID.");
       await db.insert(aggregatorGameSessions).values({
         aggregatorSessionId: sessionId,

@@ -16,6 +16,7 @@ import { DashboardSection, KycSection, UsersSection } from "./SectionsPlayers";
 import { CommissionsSection, DepositsSection, ReportsSection, TransactionsSection, WithdrawalsSection } from "./SectionsFinance";
 import { AuditSection, NotificationsSection, SettingsSection, TicketsSection } from "./SectionsOps";
 import { IntegrationsSection } from "./IntegrationsSection";
+import { AggregatorSection } from "./AggregatorSection";
 
 export type AdminMe = { admin: { id: string; name: string; email: string; twoFactorEnabled: boolean }; roles: { name: string }[]; permissions: string[]; needs2faSetup: boolean };
 export const canDo = (me: AdminMe, perm: string) => me.permissions.includes("*") || me.permissions.includes(perm);
@@ -44,6 +45,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { id: "games", label: "Games", icon: Gamepad2, perm: "games.view", render: res("games") },
     { id: "categories", label: "Categories", icon: LayoutGrid, perm: "games.view", render: res("categories") },
     { id: "providers", label: "Providers", icon: Boxes, perm: "games.view", render: res("providers") },
+    { id: "aggregator", label: "Aggregator.gg", icon: Plug, perm: "games.edit", render: () => <AggregatorSection /> },
     { id: "custom-game-apis", label: "Custom Game APIs", icon: Plug, perm: "games.edit", render: () => <IntegrationsSection kind="game" /> },
   ] },
   { group: "Marketing", items: [
