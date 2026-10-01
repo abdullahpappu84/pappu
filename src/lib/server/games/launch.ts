@@ -55,6 +55,7 @@ export async function launchGame(req: Request, opts: { slug: string; mode: "real
     device: opts.device ?? "desktop",
     lobbyUrl: `${appUrl(req)}/`,
     ip: getIp(req),
+    country: user ? (await db.select({ country: profiles.country }).from(profiles).where(eq(profiles.userId, user.id)))[0]?.country : null,
   });
 
   if (user && opts.mode === "real") {

@@ -1,6 +1,8 @@
 import "server-only";
-import { createHash, createHmac } from "crypto";
-import type { games } from "@/db/schema";
+import { createHash, createHmac, randomUUID } from "crypto";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { wallets, type games } from "@/db/schema";
 import { conflict } from "../http";
 
 /**
@@ -33,6 +35,7 @@ export interface LaunchInput {
   device: "desktop" | "mobile";
   lobbyUrl: string;
   ip: string;
+  country?: string | null;
 }
 
 export interface LaunchResult {
@@ -73,37 +76,40 @@ const directAdapter: GameAdapter = {
   },
 };
 
-/** 2) AGGREGATOR — generic REST launch API authenticated with an API key (+ optional HMAC signature). */
+/** 2) The Aggregator.gg API: catalog game UUIDs and its documented session contract. */
 const aggregatorAdapter: GameAdapter = {
   code: "aggregator",
-  label: "Aggregator API (API key)",
+  label: "Aggregator.gg",
   async launch(i) {
     const base = env("GAME_API_URL");
     const key = env("GAME_API_KEY");
     if (!base || !key) throw conflict("Game provider API is not configured (GAME_API_URL / GAME_API_KEY).");
-    if (!i.game.integrationRef) throw conflict(`${i.game.name} has no provider game ID (Integration reference).`);
-
-    const body = JSON.stringify({
-      operatorId: env("GAME_OPERATOR_ID"),
-      gameId: i.game.integrationRef,
-      provider: i.providerSlug,
-      mode: i.mode, // "real" | "demo"
-      playerId: i.user?.id,
-      playerName: i.user?.name,
-      currency: i.user?.currency ?? env("GAME_DEFAULT_CURRENCY") ?? "EUR",
-      language: i.language.toLowerCase(),
-      token: i.token,
-      device: i.device,
-      lobbyUrl: i.lobbyUrl,
-      ip: i.ip,
+    const aggregatorGameId = i.game.integrationRef;
+    if (!aggregatorGameId || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(aggregatorGameId)) {
+      throw conflict(`${i.game.name} needs The Aggregator catalog game UUID (the catalog id field), not provider_game_id.`);
+    }
+    const currency = (i.user?.currency ?? env("GAME_DEFAULT_CURRENCY") ?? "EUR").toUpperCase();
+    const path = i.mode === "demo" ? "/demo-sessions" : "/sessions";
+    const balance = i.user
+      ? await (async () => {
+          const [w] = await db.select().from(wallets).where(eq(wallets.userId, i.user!.id));
+          return Math.round((Number(w?.mainBalance ?? 0) + Number(w?.bonusBalance ?? 0)) * 100);
+        })()
+      : 0;
+    const country = i.country?.trim().toUpperCase();
+    const alpha2 = country && /^[A-Z]{2}$/.test(country) ? country : env("GAME_DEFAULT_COUNTRY")?.toUpperCase();
+    if (i.mode === "real" && !alpha2) throw conflict("Set the player's two-letter country or GAME_DEFAULT_COUNTRY for Aggregator sessions.");
+    const body = JSON.stringify(i.mode === "demo" ? { game_id: aggregatorGameId } : {
+      game_id: aggregatorGameId,
+      player_id: i.user!.id,
+      balance,
+      currency,
+      country: alpha2,
+      lang: i.language.slice(0, 2).toLowerCase(),
+      return_url: i.lobbyUrl,
     });
-
-
     const headers: Record<string, string> = { "Content-Type": "application/json", Authorization: `Bearer ${key}` };
-    const secret = env("GAME_API_SECRET");
-    if (secret) headers["X-Signature"] = createHmac("sha256", secret).update(body).digest("hex");
-
-    const path = i.mode === "demo" ? env("GAME_DEMO_PATH") ?? "/games/demo" : env("GAME_LAUNCH_PATH") ?? "/games/launch";
+    if (i.mode === "real") headers["Idempotency-Key"] = randomUUID();
     let res: Response;
     try {
       res = await fetch(`${base.replace(/\/$/, "")}${path}`, { method: "POST", headers, body, signal: AbortSignal.timeout(12000), cache: "no-store" });
@@ -111,13 +117,13 @@ const aggregatorAdapter: GameAdapter = {
       console.error("[games] provider unreachable", e);
       throw conflict("Game provider is not reachable. Please try again shortly.");
     }
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown> & { data?: Record<string, unknown> };
-    const url = (data.url ?? data.gameUrl ?? data.launchUrl ?? data.link ?? data.data?.url ?? data.data?.gameUrl) as string | undefined;
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown> & { error?: { message?: string } };
+    const url = data.game_url as string | undefined;
     if (!res.ok || !url) {
-      console.error("[games] launch failed", res.status, data);
-      throw conflict((data.message as string) || (data.error as string) || "The game could not be launched.");
+      console.error("[games] Aggregator session failed", res.status, typeof data.error === "object" ? data.error?.message : "request rejected");
+      throw conflict((typeof data.error === "object" ? data.error?.message : undefined) || "The game could not be launched.");
     }
-    return { url, display: env("GAME_DISPLAY") === "redirect" ? "redirect" : "iframe" };
+    return { url, display: "redirect" };
   },
 };
 

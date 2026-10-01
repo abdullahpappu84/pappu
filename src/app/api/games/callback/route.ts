@@ -11,23 +11,22 @@ import { verifyGameToken } from "@/lib/server/games/launch";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Seamless-wallet callback for game providers.  URL: https://YOUR-DOMAIN/api/games/callback
- *
- * Security
- *  - Header `x-signature` (or GAME_SIGNATURE_HEADER) = hex(HMAC_SHA256(rawBody, GAME_CALLBACK_SECRET))
- *  - Optional IP allow-list: GAME_CALLBACK_IPS="1.2.3.4,5.6.7.8"
- *
- * Actions (JSON body)
- *  authenticate { token }                               → player + balance
- *  balance      { token | userId }                      → balance
- *  bet          { token | userId, amount, roundId, transactionId?, gameSlug? }
- *  win          { token | userId, amount, roundId, transactionId?, gameSlug? }   (amount may be 0)
- *  rollback     { token | userId, roundId, transactionId? }  (alias: refund) → reverses the original bet
- *
- * Every money action is idempotent per transactionId (or roundId) and written to the ledger.
- */
-const schema = z.object({
+const aggregatorSchema = z.object({
+  transaction_type: z.enum(["bet", "win", "refund"]),
+  transaction_id: z.string().min(1).max(120),
+  original_transaction_id: z.string().min(1).max(120).optional(),
+  amount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  player_id: z.string().min(1).max(128),
+  provider_code: z.string().min(1).max(40),
+  game: z.string().max(120).optional(),
+  game_id: z.string().max(120).optional(),
+  round_id: z.string().min(1).max(120),
+  is_free: z.boolean().optional(),
+  action: z.string().optional(),
+});
+
+const legacySchema = z.object({
   action: z.enum(["authenticate", "balance", "bet", "win", "rollback", "refund"]),
   token: z.string().max(2000).optional(),
   userId: z.string().uuid().optional(),
@@ -37,63 +36,108 @@ const schema = z.object({
   gameSlug: z.string().max(120).optional(),
 });
 
-async function balances(userId: string) {
+async function walletState(userId: string) {
   const [w] = await db.select().from(wallets).where(eq(wallets.userId, userId));
-  const main = Number(w?.mainBalance ?? 0);
-  const bonus = Number(w?.bonusBalance ?? 0);
-  return { balance: Number((main + bonus).toFixed(2)), mainBalance: main, bonusBalance: bonus, currency: w?.currency ?? "EUR" };
+  return { balance: Math.round((Number(w?.mainBalance ?? 0) + Number(w?.bonusBalance ?? 0)) * 100), currency: w?.currency ?? "EUR" };
+}
+
+function replyError(status: number, code: string, message: string, balance = 0, currency = "EUR") {
+  return NextResponse.json({ status, error: code, message, balance, currency }, { status });
 }
 
 export async function POST(req: Request) {
+  const secret = process.env.AGGREGATOR_CALLBACK_SECRET || process.env.GAME_CALLBACK_SECRET;
+  if (!secret) return replyError(503, "CALLBACK_NOT_CONFIGURED", "Wallet callback is not configured.");
+
+  const allow = process.env.GAME_CALLBACK_IPS?.split(",").map((s) => s.trim()).filter(Boolean);
+  if (allow?.length && !allow.includes(getIp(req))) return replyError(403, "IP_NOT_ALLOWED", "Request source is not allowed.");
+
+  // Aggregator signs the exact raw JSON bytes in X-SIGNATURE.
+  const raw = Buffer.from(await req.arrayBuffer());
+  const signature = req.headers.get("x-signature") ?? "";
+  const expected = createHmac("sha256", secret).update(raw).digest("hex");
+  if (!safeEqual(expected, signature.trim().toLowerCase())) return replyError(401, "INVALID_SIGNATURE", "Invalid signature.");
+
+  let payload: unknown;
   try {
-    const secret = process.env.GAME_CALLBACK_SECRET;
-    if (!secret) return NextResponse.json({ ok: false, error: "Game callback not configured." }, { status: 503 });
+    payload = JSON.parse(raw.toString("utf8"));
+  } catch {
+    return replyError(400, "INVALID_JSON", "Request body must be valid JSON.");
+  }
 
-    const allow = process.env.GAME_CALLBACK_IPS?.split(",").map((s) => s.trim()).filter(Boolean);
-    if (allow?.length && !allow.includes(getIp(req))) return NextResponse.json({ ok: false, error: "IP not allowed." }, { status: 403 });
+  try {
+    const parsedAggregator = aggregatorSchema.safeParse(payload);
+    if (parsedAggregator.success) {
+      const b = parsedAggregator.data;
+      const [u] = await db.select({ id: users.id, status: users.status }).from(users).where(eq(users.id, b.player_id));
+      if (!u) return replyError(404, "PLAYER_NOT_FOUND", "Player not found.");
+      const before = await walletState(u.id);
+      if (before.currency !== b.currency) return replyError(400, "CURRENCY_MISMATCH", "Callback currency does not match wallet currency.", before.balance, before.currency);
+      if (u.status !== "active" && b.transaction_type === "bet") return replyError(400, "PLAYER_BLOCKED", "Player is restricted.", before.balance, before.currency);
 
-    const raw = await req.text();
-    const header = (process.env.GAME_SIGNATURE_HEADER || "x-signature").toLowerCase();
-    const expected = createHmac("sha256", secret).update(raw).digest("hex");
-    if (!safeEqual(expected, (req.headers.get(header) ?? "").toLowerCase())) return NextResponse.json({ ok: false, error: "Invalid signature." }, { status: 401 });
+      const eventAction = b.transaction_type === "refund" ? "rollback" : b.transaction_type;
+      if (b.transaction_type === "refund" && b.is_free) {
+        return NextResponse.json({ balance: before.balance, currency: before.currency, player_id: u.id });
+      }
+      if (b.transaction_type === "bet" && b.is_free) {
+        return NextResponse.json({ balance: before.balance, currency: before.currency, player_id: u.id });
+      }
 
-    let json: unknown;
-    try {
-      json = JSON.parse(raw);
-    } catch {
-      throw new ApiError(400, "Invalid JSON.");
+      try {
+        const result = await processGameEvent({
+          action: eventAction,
+          userId: u.id,
+          amount: b.amount / 100,
+          roundId: b.round_id,
+          transactionId: b.transaction_id,
+          originalTransactionId: b.original_transaction_id ?? (b.transaction_type === "refund" ? b.transaction_id : undefined),
+          gameSlug: b.game,
+          idempotencyScope: `aggregator:${b.provider_code}`,
+          callbackCurrency: b.currency,
+        });
+        const replay = result.transaction?.metadata?.callbackResponse;
+        if (result.duplicate && replay && typeof replay === "object") return NextResponse.json(replay);
+        if (b.transaction_type === "refund" && !result.transaction) {
+          return replyError(400, "ORIGINAL_TRANSACTION_NOT_FOUND", "Original debit was not found for this refund.", before.balance, before.currency);
+        }
+      } catch (e) {
+        if (e instanceof ApiError && e.code === "INSUFFICIENT_FUNDS") {
+          return replyError(402, "INSUFFICIENT_FUNDS", "Insufficient balance.", before.balance, before.currency);
+        }
+        throw e;
+      }
+      const after = await walletState(u.id);
+      return NextResponse.json({ balance: after.balance, currency: after.currency, player_id: u.id });
     }
-    const b = schema.parse(json);
 
-    // Resolve player from signed game token (preferred) or userId
+    // Keep the original generic callback contract working for existing providers.
+    const b = legacySchema.parse(payload);
     let userId = b.userId;
     let gameSlug = b.gameSlug;
     if (b.token) {
       const t = verifyGameToken(b.token);
-      if (!t) return NextResponse.json({ ok: false, error: "Invalid or expired token.", code: "INVALID_TOKEN" }, { status: 401 });
+      if (!t) return replyError(401, "INVALID_TOKEN", "Invalid or expired token.");
       userId = t.uid;
       gameSlug ??= t.g;
     }
     if (!userId) throw new ApiError(400, "token or userId is required.");
     const [u] = await db.select({ id: users.id, name: users.name, status: users.status }).from(users).where(eq(users.id, userId));
-    if (!u) return NextResponse.json({ ok: false, error: "Player not found.", code: "PLAYER_NOT_FOUND" }, { status: 404 });
-
-    if (b.action === "authenticate" || b.action === "balance") {
-      return NextResponse.json({ ok: true, playerId: u.id, playerName: u.name, ...(await balances(u.id)) });
-    }
+    if (!u) return replyError(404, "PLAYER_NOT_FOUND", "Player not found.");
+    const current = await balancesLegacy(u.id);
+    if (b.action === "authenticate" || b.action === "balance") return NextResponse.json({ ok: true, playerId: u.id, playerName: u.name, ...current });
     if (u.status !== "active" && b.action === "bet") return NextResponse.json({ ok: false, error: "Player is restricted.", code: "PLAYER_BLOCKED" }, { status: 403 });
     if (!b.roundId) throw new ApiError(400, "roundId is required.");
-
-    const r = await processGameEvent({
-      action: b.action === "refund" ? "rollback" : b.action,
-      userId: u.id,
-      amount: b.amount ?? 0,
-      roundId: b.roundId,
-      transactionId: b.transactionId,
-      gameSlug,
-    });
-    return NextResponse.json({ ok: true, duplicate: r.duplicate, transactionId: r.transaction?.reference ?? null, ...(await balances(u.id)) });
+    const result = await processGameEvent({ action: b.action === "refund" ? "rollback" : b.action, userId: u.id, amount: b.amount ?? 0, roundId: b.roundId, transactionId: b.transactionId, gameSlug });
+    return NextResponse.json({ ok: true, duplicate: result.duplicate, transactionId: result.transaction?.reference ?? null, ...await balancesLegacy(u.id) });
   } catch (e) {
+    if (e instanceof z.ZodError) return replyError(400, "INVALID_REQUEST", "Invalid wallet callback payload.");
     return errorResponse(e);
   }
+}
+
+async function balancesLegacy(userId: string) {
+  const [w] = await db.select().from(wallets).where(eq(wallets.userId, userId));
+  const mainBalance = Number(w?.mainBalance ?? 0);
+  const bonusBalance = Number(w?.bonusBalance ?? 0);
+  return { balance: Number((mainBalance + bonusBalance).toFixed(2)), mainBalance, bonusBalance, currency: w?.currency ?? "EUR" };
 }
