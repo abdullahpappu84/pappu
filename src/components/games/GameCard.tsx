@@ -1,12 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import { motion } from "framer-motion";
 import { Heart, Play } from "lucide-react";
 import { memo } from "react";
 import type { Game } from "@/data/types";
 import { useApp } from "@/components/providers/AppProvider";
-import { GameArt } from "./GameArt";
+import { GameThumbnail } from "./GameThumbnail";
 
 const badgeStyles: Record<NonNullable<Game["badge"]>, string> = {
   HOT: "bg-gradient-to-b from-[#ff5a67] to-[#d61f35]",
@@ -31,20 +30,13 @@ export const GameCard = memo(function GameCard({ game, priority = false }: { gam
         {/* Thumbnail */}
         <div className="relative aspect-[16/10] overflow-hidden">
           <div className="absolute inset-0 transition-transform duration-500 ease-out group-hover:scale-[1.07]">
-            {game.image ? (
-              <Image
-                src={game.image}
-                alt={`${game.title} artwork`}
-                fill
-                priority={priority}
-                sizes="(min-width:1280px) 16vw, (min-width:1024px) 17vw, (min-width:480px) 33vw, 50vw"
-                className="object-cover"
-              />
-            ) : game.art ? (
-              <GameArt art={game.art} title={game.title} />
-            ) : (
-              <div className="absolute inset-0 bg-ink-700" />
-            )}
+            <GameThumbnail
+              src={game.image}
+              title={game.title}
+              art={game.art}
+              priority={priority}
+              sizes="(min-width:1280px) 16vw, (min-width:1024px) 17vw, (min-width:480px) 33vw, 50vw"
+            />
           </div>
 
           {/* hover overlay + play */}

@@ -5,7 +5,7 @@ import { Heart, MonitorPlay, Play, Users } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { GameArt } from "@/components/games/GameArt";
+import { GameThumbnail } from "@/components/games/GameThumbnail";
 import { LiveBadge } from "@/components/live-casino/LiveCasinoCard";
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -35,11 +35,7 @@ export function PreviewModal() {
       {game && (
         <div>
           <div className="relative aspect-[16/10] overflow-hidden">
-            {game.image ? (
-              <Image src={game.image} alt={game.title} fill sizes="520px" className="object-cover" />
-            ) : game.art ? (
-              <GameArt art={game.art} title={game.title} />
-            ) : null}
+            <GameThumbnail src={game.image} title={game.title} art={game.art} sizes="520px" />
             <div className="absolute inset-0 bg-gradient-to-t from-ink-850 via-transparent to-transparent" />
           </div>
           <div className="-mt-6 space-y-4 p-5 pt-0 md:p-6 md:pt-0">
