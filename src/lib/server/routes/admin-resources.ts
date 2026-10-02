@@ -1,5 +1,5 @@
 import "server-only";
-import { asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db, type Tx } from "@/db";
 import * as t from "@/db/schema";
@@ -118,8 +118,16 @@ async function expand(key: string, rows: Row[]) {
   if (!ids.length) return rows;
   if (key === "games") {
     const links = await db.select().from(t.gameCategories).where(inArray(t.gameCategories.gameId, ids));
-    const provs = await db.select({ id: t.providers.id, name: t.providers.name }).from(t.providers);
-    return rows.map((r) => ({ ...r, categoryIds: links.filter((l) => l.gameId === r.id).map((l) => String(l.categoryId)), providerName: provs.find((p) => p.id === r.providerId)?.name ?? "—" }));
+    const provs = await db.select({ id: t.providers.id, name: t.providers.name, adapter: t.providers.adapter }).from(t.providers);
+    const providerById = new Map(provs.map((provider) => [provider.id, provider]));
+    const categoryIds = [...new Set(links.map((link) => link.categoryId))];
+    const categoryRows = categoryIds.length ? await db.select({ id: t.categories.id, name: t.categories.name }).from(t.categories).where(inArray(t.categories.id, categoryIds)) : [];
+    const categoryById = new Map(categoryRows.map((category) => [category.id, category.name]));
+    return rows.map((r) => {
+      const gameCategoryIds = links.filter((link) => link.gameId === r.id).map((link) => link.categoryId);
+      const provider = providerById.get(r.providerId as number);
+      return { ...r, categoryIds: gameCategoryIds.map(String), categoryNames: gameCategoryIds.map((id) => categoryById.get(id)).filter(Boolean).join(", "), providerName: provider?.name ?? "—", apiSource: provider?.adapter ?? (r.aggregatorGameId ? "aggregator" : "manual") };
+    });
   }
   if (key === "categories") {
     const links = await db.select().from(t.gameCategories).where(inArray(t.gameCategories.categoryId, ids));
@@ -235,7 +243,7 @@ export async function listResource(ctx: AdminContext, req: Request, key: string)
   if (q) filters.push(or(...def.search.map((s) => ilike(col(table, s) as never, `%${q}%`)))!);
   const provider = query(req).get("providerId");
   if (key === "games" && provider) filters.push(eq(t.games.providerId, Number(provider)));
-  const where = filters.length ? filters[0] : undefined;
+  const where = filters.length ? and(...filters) : undefined;
   const order = "sortOrder" in (table as object) ? asc(col(table, "sortOrder") as never) : "level" in (table as object) ? asc(col(table, "level") as never) : desc(col(table, "id") as never);
   const [rows, [{ total }]] = await Promise.all([
     db.select().from(table).where(where).orderBy(order).limit(pageSize).offset(offset) as unknown as Promise<Row[]>,

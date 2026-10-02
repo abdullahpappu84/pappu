@@ -60,8 +60,9 @@ export async function fetchJson(url: string, init: RequestInit, label: string): 
   let res: Response;
   try {
     res = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(15000) });
-  } catch (e) {
-    console.error(`[payments:${label}] unreachable`, e);
+  } catch {
+    // Network errors can include the full URL (including query credentials); keep them out of logs.
+    console.error(`[integration:${label}] endpoint unreachable`);
     throw gatewayError(`${label} is not reachable right now. Please try again.`);
   }
   const text = await res.text();
@@ -71,6 +72,6 @@ export async function fetchJson(url: string, init: RequestInit, label: string): 
   } catch {
     data = { raw: text };
   }
-  if (!res.ok) console.error(`[payments:${label}] HTTP ${res.status}`, text.slice(0, 500));
+  if (!res.ok) console.error(`[integration:${label}] HTTP ${res.status}`);
   return { ok: res.ok, status: res.status, data };
 }

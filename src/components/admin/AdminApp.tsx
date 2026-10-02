@@ -16,7 +16,7 @@ import { DashboardSection, KycSection, UsersSection } from "./SectionsPlayers";
 import { CommissionsSection, DepositsSection, ReportsSection, TransactionsSection, WithdrawalsSection } from "./SectionsFinance";
 import { AuditSection, NotificationsSection, SettingsSection, TicketsSection } from "./SectionsOps";
 import { IntegrationsSection } from "./IntegrationsSection";
-import { AggregatorSection } from "./AggregatorSection";
+import { GameApiManagement } from "./GameApiManagement";
 
 export type AdminMe = { admin: { id: string; name: string; email: string; twoFactorEnabled: boolean }; roles: { name: string }[]; permissions: string[]; needs2faSetup: boolean };
 export const canDo = (me: AdminMe, perm: string) => me.permissions.includes("*") || me.permissions.includes(perm);
@@ -45,8 +45,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { id: "games", label: "Games", icon: Gamepad2, perm: "games.view", render: res("games") },
     { id: "categories", label: "Categories", icon: LayoutGrid, perm: "games.view", render: res("categories") },
     { id: "providers", label: "Providers", icon: Boxes, perm: "games.view", render: res("providers") },
-    { id: "aggregator", label: "Aggregator.gg", icon: Plug, perm: "games.edit", render: () => <AggregatorSection /> },
-    { id: "custom-game-apis", label: "Custom Game APIs", icon: Plug, perm: "games.edit", render: () => <IntegrationsSection kind="game" /> },
+    { id: "game-api-management", label: "Game API Management", icon: Plug, perm: "games.edit", render: () => <GameApiManagement /> },
   ] },
   { group: "Marketing", items: [
     { id: "bonuses", label: "Bonuses", icon: Gift, perm: "bonuses.view", render: res("bonuses") },
@@ -163,7 +162,7 @@ export function AdminApp() {
 
   const items = NAV.map((g) => ({ ...g, items: g.items.filter((i) => !i.perm || canDo(me, i.perm)) })).filter((g) => g.items.length);
   const all = items.flatMap((g) => g.items);
-  const current = all.find((i) => i.id === section) ?? all[0];
+  const current = all.find((i) => i.id === section || (i.id === "game-api-management" && ["aggregator", "custom-game-apis"].includes(section))) ?? all[0];
 
   const sidebar = (
     <nav className="space-y-5 p-4">

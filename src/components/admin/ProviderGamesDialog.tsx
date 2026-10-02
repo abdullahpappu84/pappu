@@ -10,6 +10,7 @@ type ProviderGamesData = {
   provider: { id: number; name: string; totalGames: number; activeGames: number; inactiveGames: number; maintenanceGames: number };
   games: { id: number; name: string; thumbnail: string | null; status: string; providerGameId: string | null; aggregatorGameId: string | null; categoryIds: number[] }[];
   categories: { id: number; name: string; isActive: boolean }[];
+  page: number; pageSize: number; total: number;
 };
 
 export function ProviderGamesDialog({ providerId, canEdit, onClose }: { providerId: number; canEdit: boolean; onClose: () => void }) {
@@ -21,18 +22,19 @@ export function ProviderGamesDialog({ providerId, canEdit, onClose }: { provider
   const [busy, setBusy] = useState(false);
   const [assignAll, setAssignAll] = useState(false);
   const [message, setMessage] = useState("");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let current = true;
-    api<ProviderGamesData>(`/api/admin/providers/${providerId}/games`).then((result) => {
+    const timer = setTimeout(() => api<ProviderGamesData>(`/api/admin/providers/${providerId}/games?page=${page}&q=${encodeURIComponent(search)}`).then((result) => {
       if (current) setData(result);
     }).catch((e) => {
       if (current) setError(errMsg(e));
-    });
-    return () => { current = false; };
-  }, [providerId]);
+    }), 180);
+    return () => { current = false; clearTimeout(timer); };
+  }, [providerId, page, search]);
 
-  const visibleGames = useMemo(() => (data?.games ?? []).filter((game) => game.name.toLowerCase().includes(search.toLowerCase())), [data, search]);
+  const visibleGames = useMemo(() => data?.games ?? [], [data]);
   const toggle = (id: number) => setSelected((old) => {
     const next = new Set(old);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -68,10 +70,10 @@ export function ProviderGamesDialog({ providerId, canEdit, onClose }: { provider
       <h2 className="font-display text-[22px] font-semibold text-white">{data?.provider.name ?? "Provider"} games</h2>
       <p className="mt-1 text-[13px] text-white/50">{data ? `${data.provider.totalGames} total · ${data.provider.activeGames} active · ${data.provider.inactiveGames} inactive · ${data.provider.maintenanceGames} maintenance` : "Loading provider games…"}</p>
       {data && <>
-        <input className={`${inputCls} mt-4`} placeholder="Search provider games…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className={`${inputCls} mt-4`} placeholder="Search provider games…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         {canEdit && <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-white/75">
           <input type="checkbox" className="accent-[#f0b93f]" checked={allVisibleSelected} onChange={toggleVisible} />
-          Select all {search ? `${visibleGames.length} matching` : `${data.games.length}`} games
+          Select all {visibleGames.length} games on this page
         </label>}
         <div className="mt-3 max-h-[46vh] overflow-y-auto rounded-xl border border-white/10">
           {visibleGames.length ? visibleGames.map((game) => <label key={game.id} className="flex cursor-pointer items-center gap-3 border-b border-white/5 px-3 py-2.5 last:border-0 hover:bg-white/[0.03]">
@@ -82,13 +84,20 @@ export function ProviderGamesDialog({ providerId, canEdit, onClose }: { provider
             <span className="max-w-[180px] text-right text-[11px] text-white/45">{game.categoryIds.map((id) => data.categories.find((cat) => cat.id === id)?.name).filter(Boolean).join(", ") || "No category"}</span>
           </label>) : <p className="p-5 text-center text-sm text-white/45">No games found for this provider.</p>}
         </div>
+        <div className="mt-2 flex items-center justify-between text-xs text-white/50">
+          <span>Showing {data.total ? (data.page - 1) * data.pageSize + 1 : 0}–{Math.min(data.page * data.pageSize, data.total)} of {data.total}</span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
+            <Button size="sm" variant="outline" disabled={page * data.pageSize >= data.total} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          </div>
+        </div>
         {canEdit && <div className="mt-4 flex flex-col gap-2">
           <select className={`${inputCls} flex-1`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">Select an existing category</option>
             {data.categories.map((category) => <option key={category.id} value={category.id} className="bg-ink-800">{category.name}{category.isActive ? "" : " (disabled)"}</option>)}
           </select>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button disabled={busy || !data.games.length || !categoryId} onClick={() => assign(true)}>{busy && assignAll ? "Assigning…" : `Add all ${data.provider.totalGames} provider games`}</Button>
+            <Button disabled={busy || !data.provider.totalGames || !categoryId} onClick={() => assign(true)}>{busy && assignAll ? "Assigning…" : `Add all ${data.provider.totalGames} provider games`}</Button>
             <Button variant="outline" disabled={busy || !selected.size || !categoryId} onClick={() => assign(false)}>{busy && !assignAll ? "Assigning…" : `Add ${selected.size || "selected"} games`}</Button>
           </div>
         </div>}

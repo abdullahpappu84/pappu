@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/kit";
 import { api, errMsg } from "@/lib/api";
 
-type SyncResult = { totalFetched: number; newGames: number; updatedGames: number; deactivatedGames: number; failedRecords: number };
+type SyncResult = { totalFetched: number; newGames: number; updatedGames: number; deactivatedGames: number; failedRecords: number; providersMatched: number; providersCreated: number; thumbnailsUpdated: number };
 
 export function AggregatorSection() {
   const [busy, setBusy] = useState(false);
@@ -28,6 +28,6 @@ export function AggregatorSection() {
       <Button disabled={busy} onClick={() => act("aggregator/sync", "sync")}><RefreshCw className="mr-2 h-4 w-4" />Sync games</Button>
     </div>
     {message && <p className="mt-4 text-sm text-white/70">{message}</p>}
-    {stats && <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">{[["Fetched", stats.totalFetched], ["New", stats.newGames], ["Updated", stats.updatedGames], ["Deactivated", stats.deactivatedGames], ["Failed", stats.failedRecords]].map(([k, v]) => <div key={k} className="rounded-lg bg-white/[0.04] p-3"><dt className="text-white/50">{k}</dt><dd className="mt-1 font-semibold">{v}</dd></div>)}</dl>}
+    {stats && <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">{[["Fetched", stats.totalFetched], ["New", stats.newGames], ["Updated", stats.updatedGames], ["Providers matched", stats.providersMatched], ["Providers created", stats.providersCreated], ["Thumbnails updated", stats.thumbnailsUpdated], ["Errors", stats.failedRecords]].map(([k, v]) => <div key={k} className="rounded-lg bg-white/[0.04] p-3"><dt className="text-white/50">{k}</dt><dd className="mt-1 font-semibold">{v}</dd></div>)}</dl>}
   </Card>;
 }

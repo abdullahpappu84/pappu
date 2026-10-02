@@ -189,11 +189,8 @@ const casinoApiProAdapter: GameAdapter = {
           cache: "no-store",
         }
       );
-    } catch (error) {
-      console.error(
-        "[casino_api_pro] token request failed",
-        error
-      );
+    } catch {
+      console.error("[casino_api_pro] token request failed");
 
       throw conflict(
         "Casino API Pro is not reachable."
@@ -206,11 +203,7 @@ const casinoApiProAdapter: GameAdapter = {
         .catch(() => ({}))) as Record<string, unknown>;
 
     if (!tokenResponse.ok) {
-      console.error(
-        "[casino_api_pro] token error",
-        tokenResponse.status,
-        tokenData
-      );
+      console.error("[casino_api_pro] token error", tokenResponse.status);
 
       throw conflict(
         String(
@@ -301,11 +294,8 @@ const casinoApiProAdapter: GameAdapter = {
           cache: "no-store",
         }
       );
-    } catch (error) {
-      console.error(
-        "[casino_api_pro] session request failed",
-        error
-      );
+    } catch {
+      console.error("[casino_api_pro] session request failed");
 
       throw conflict(
         "Casino API Pro session service is not reachable."
@@ -318,11 +308,7 @@ const casinoApiProAdapter: GameAdapter = {
         .catch(() => ({}))) as Record<string, unknown>;
 
     if (!sessionResponse.ok) {
-      console.error(
-        "[casino_api_pro] session error",
-        sessionResponse.status,
-        sessionData
-      );
+      console.error("[casino_api_pro] session error", sessionResponse.status);
 
       throw conflict(
         String(
@@ -352,10 +338,7 @@ const casinoApiProAdapter: GameAdapter = {
       !launchUrl ||
       !/^https?:\/\//.test(launchUrl)
     ) {
-      console.error(
-        "[casino_api_pro] launch URL missing",
-        sessionData
-      );
+      console.error("[casino_api_pro] launch URL missing");
 
       throw conflict(
         "Casino API Pro did not return a valid launch URL."

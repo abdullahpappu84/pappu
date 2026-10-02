@@ -23,11 +23,14 @@ export function buildGameAdapter(row: IntegrationRow, debug?: DebugLog): GameAda
     async launch(i) {
       const secrets = resolveSecrets(row.secrets);
       const base = i.lobbyUrl.replace(/\/$/, "");
+      const customMetadata = (i.game.aggregatorMetadata as { customApi?: { launchUrl?: string; demoUrl?: string } } | null)?.customApi;
       const vars: Vars = {
         ...baseVars(secrets),
         game_id: i.game.integrationRef || i.game.slug,
         game_slug: i.game.slug,
         game_name: i.game.name,
+        game_launch_url: customMetadata?.launchUrl ?? "",
+        game_demo_url: customMetadata?.demoUrl ?? "",
         provider: i.providerSlug ?? "",
         mode: i.mode,
         demo: i.mode === "demo" ? "true" : "false",

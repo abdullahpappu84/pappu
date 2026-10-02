@@ -51,7 +51,7 @@ async function main() {
       .where(or(eq(providers.slug, "casino-api-pro"), eq(providers.name, "Casino API Pro")))
       .limit(1);
     const [provider] = existingProvider
-      ? await tx.update(providers).set({ name: "Casino API Pro", slug: "casino-api-pro", adapter: "casino_api_pro", isActive: true }).where(eq(providers.id, existingProvider.id)).returning()
+      ? [existingProvider]
       : await tx.insert(providers).values({ name: "Casino API Pro", slug: "casino-api-pro", adapter: "casino_api_pro", isActive: true, sortOrder: 90 }).returning();
 
     const categoryIds = new Map<string, number>();
@@ -78,47 +78,28 @@ async function main() {
       const categorySlug = (remote.category || "instant").toLowerCase();
       const rtp = Number(remote.rtp ?? 97);
       const volatility = (remote.volatility || "medium").replace(/(^|-)([a-z])/g, (_match, sep: string, letter: string) => `${sep}${letter.toUpperCase()}`);
-      const [game] = await tx
-        .insert(games)
-        .values({
+      const [existingGame] = await tx.select().from(games).where(or(
+        eq(games.slug, slug),
+        eq(games.integrationRef, remote.slug),
+      )).limit(1);
+      const apiFields = {
           slug,
           name: remote.name,
           providerId: provider.id,
-          thumbnail: remote.thumbnail_url ?? null,
-          mobileThumbnail: remote.thumbnail_url ?? null,
-          description: remote.description ?? `${remote.name} by Casino API Pro.`,
+          ...(remote.thumbnail_url ? { thumbnail: remote.thumbnail_url } : {}),
+          ...(remote.description ? { description: remote.description } : {}),
           integrationRef: remote.slug,
-          status: "active",
           rtp: (Number.isFinite(rtp) ? rtp : 97).toFixed(2),
           volatility,
-          maxWin: remote.max_win ?? "See game rules",
-          isNew: false,
-          isPopular: false,
-          isFeatured: false,
-          sortOrder: 900 + index,
-          meta: { minBet: remote.min_bet, maxBet: remote.max_bet },
-        })
-        .onConflictDoUpdate({
-          target: games.slug,
-          set: {
-            name: remote.name,
-            providerId: provider.id,
-            thumbnail: remote.thumbnail_url ?? null,
-            mobileThumbnail: remote.thumbnail_url ?? null,
-            description: remote.description ?? `${remote.name} by Casino API Pro.`,
-            integrationRef: remote.slug,
-            status: "active",
-            rtp: (Number.isFinite(rtp) ? rtp : 97).toFixed(2),
-            volatility,
-            maxWin: remote.max_win ?? "See game rules",
-            meta: { minBet: remote.min_bet, maxBet: remote.max_bet },
-          },
-        })
-        .returning();
+          ...(remote.max_win ? { maxWin: remote.max_win } : {}),
+          meta: { ...(existingGame?.meta ?? {}), minBet: remote.min_bet, maxBet: remote.max_bet },
+        };
+      const [game] = existingGame
+        ? await tx.update(games).set({ ...apiFields, updatedAt: new Date() }).where(eq(games.id, existingGame.id)).returning()
+        : await tx.insert(games).values({ ...apiFields, status: "active", sortOrder: 900 + index }).returning();
 
-      await tx.delete(gameCategories).where(eq(gameCategories.gameId, game.id));
       const categoryId = categoryIds.get(categorySlug);
-      if (categoryId) await tx.insert(gameCategories).values({ gameId: game.id, categoryId });
+      if (categoryId) await tx.insert(gameCategories).values({ gameId: game.id, categoryId }).onConflictDoNothing();
     }
   });
 

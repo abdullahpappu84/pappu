@@ -109,6 +109,34 @@ export const PAYMENT_SECTIONS: ISection[] = [
 
 export const GAME_SECTIONS: ISection[] = [
   {
+    title: "Game catalog import & field mapping",
+    description: "Optional. Catalog requests run server-side. Keep authentication values in Secrets and reference them from headers as {{secret.NAME}}.",
+    fields: [
+      { key: "catalogUrl", label: "Games endpoint", type: "text", full: true, placeholder: "https://api.provider.com/v1/games" },
+      { key: "catalogMode", label: "Catalog environment", type: "select", options: ["sandbox", "live"] },
+      { key: "catalogSandboxUrl", label: "Sandbox / test games endpoint", type: "text", placeholder: "https://sandbox.provider.com/v1/games" },
+      { key: "catalogLiveUrl", label: "Live games endpoint", type: "text", placeholder: "https://api.provider.com/v1/games" },
+      { key: "catalogSandboxCredentialSecret", label: "Sandbox API key secret name", type: "text", placeholder: "SANDBOX_API_KEY" },
+      { key: "catalogLiveCredentialSecret", label: "Live API key secret name", type: "text", placeholder: "LIVE_API_KEY" },
+      { key: "catalogMethod", label: "HTTP method", type: "select", options: ["GET", "POST"] },
+      { key: "catalogContentType", label: "Body format", type: "select", options: ["json", "form"] },
+      { key: "catalogHeaders", label: "Headers", type: "textarea", full: true, placeholder: "Authorization: Bearer {{secret.API_KEY}}" },
+      { key: "catalogBody", label: "Request body / query", type: "textarea", full: true, placeholder: "{}" },
+      { key: "catalogGamesPath", label: "Games array path", type: "text", placeholder: "data.games" },
+      { key: "catalogFieldGameId", label: "Game ID field", type: "text", placeholder: "game_id" },
+      { key: "catalogFieldName", label: "Game name field", type: "text", placeholder: "title" },
+      { key: "catalogFieldProviderCode", label: "Provider code / ID field", type: "text", placeholder: "vendor_code" },
+      { key: "catalogFieldProvider", label: "Provider name field", type: "text", placeholder: "vendor" },
+      { key: "catalogFieldThumbnail", label: "Thumbnail field", type: "text", placeholder: "image_url" },
+      { key: "catalogFieldLaunchUrl", label: "Launch URL field (metadata)", type: "text", placeholder: "launch_url" },
+      { key: "catalogFieldDemoUrl", label: "Demo URL field (metadata)", type: "text", placeholder: "demo_url" },
+      { key: "catalogFieldRtp", label: "RTP field", type: "text", placeholder: "rtp" },
+      { key: "catalogFieldGameType", label: "Game type field", type: "text", placeholder: "game_type" },
+      { key: "catalogFieldCurrency", label: "Currency field", type: "text", placeholder: "currency" },
+      { key: "catalogFieldStatus", label: "Remote status field (new games only)", type: "text", placeholder: "status" },
+    ],
+  },
+  {
     title: "1 · Game launch",
     fields: [
       { key: "launchMode", label: "Launch type", type: "select", options: ["api", "url_template"], help: "api = call the provider's launch API · url_template = build the game URL directly" },
@@ -182,6 +210,7 @@ export const VARIABLES: Record<IntegrationKind, [string, string][]> = {
   game: [
     ["game_id", "Provider game ID (Integration reference) or slug"],
     ["game_slug / game_name / provider", "Game info"],
+    ["game_launch_url / game_demo_url", "Mapped per-game launch and demo URLs from the catalog, when provided"],
     ["mode / demo / real", "real|demo · true|false"],
     ["player_id / player_name / player_email", "Player (empty in demo)"],
     ["currency / language", "Player currency & language"],

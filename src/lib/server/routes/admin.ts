@@ -18,6 +18,8 @@ import { appUrl } from "../mailer";
 import { buildPaymentAdapter } from "../integrations/payment";
 import { buildGameAdapter } from "../integrations/game";
 import { clearIntegrationCache, describeSecrets, mergeSecrets, RESERVED_CODES } from "../integrations/store";
+import { detectCatalogMapping, fetchCatalog, syncIntegrationCatalog, testCatalogConnection } from "../integrations/catalog";
+import { syncCasinoApiProCatalog, testCasinoApiProCatalog } from "../integrations/casinoapipro";
 import { syncAggregatorCatalog } from "../aggregator-sync";
 import { testAggregatorConnection } from "@/lib/aggregator";
 import { dateRange, formData } from "./me";
@@ -53,6 +55,10 @@ const assertIntPerm = (ctx: AdminContext, kind: string) => {
   if (!can(ctx, perm)) throw forbidden(`Missing permission: ${perm}`);
 };
 const safeIntegration = (r: typeof t.integrations.$inferSelect) => ({ ...r, secrets: undefined, secretInfo: describeSecrets(r.secrets) });
+const safeEndpoint = (raw: string) => {
+  try { const url = new URL(raw); return `${url.origin}${url.pathname.replace(/\/$/, "")}`; }
+  catch { return "Not configured"; }
+};
 
 const TX_TYPES = t.txType.enumValues;
 const SETTINGS_PERM: Record<string, string> = { withdrawal: "finance.settings", deposit: "finance.settings", referral: "affiliates.manage", vip: "bonuses.manage" };
@@ -62,25 +68,37 @@ const routes: Route<C>[] = [
     method: "GET",
     path: "providers/:id/games",
     perm: "games.view",
-    handler: async ({ params }) => {
+    handler: async ({ params, req }) => {
       const providerId = Number(params.id);
       if (!Number.isInteger(providerId) || providerId <= 0) throw badRequest("Invalid provider.");
       const [provider] = await db.select({ id: t.providers.id, name: t.providers.name }).from(t.providers).where(eq(t.providers.id, providerId));
       if (!provider) throw notFound("Provider not found.");
-      const items = await db.select({ id: t.games.id, name: t.games.name, thumbnail: t.games.thumbnail, status: t.games.status, providerGameId: t.games.providerGameId, aggregatorGameId: t.games.aggregatorGameId })
-        .from(t.games).where(eq(t.games.providerId, providerId)).orderBy(asc(t.games.name));
+      const { page, pageSize, offset } = pageParams(req, 50);
+      const search = query(req).get("q")?.trim();
+      const where = search
+        ? and(eq(t.games.providerId, providerId), or(ilike(t.games.name, `%${search}%`), ilike(t.games.providerGameId, `%${search}%`)))
+        : eq(t.games.providerId, providerId);
+      const [items, [{ totalGames }], statusCounts] = await Promise.all([
+        db.select({ id: t.games.id, name: t.games.name, thumbnail: t.games.thumbnail, status: t.games.status, providerGameId: t.games.providerGameId, aggregatorGameId: t.games.aggregatorGameId })
+          .from(t.games).where(where).orderBy(asc(t.games.name)).limit(pageSize).offset(offset),
+        db.select({ totalGames: count() }).from(t.games).where(eq(t.games.providerId, providerId)),
+        db.select({ status: t.games.status, total: count() }).from(t.games).where(eq(t.games.providerId, providerId)).groupBy(t.games.status),
+      ]);
       const links = items.length ? await db.select({ gameId: t.gameCategories.gameId, categoryId: t.gameCategories.categoryId }).from(t.gameCategories).where(inArray(t.gameCategories.gameId, items.map((g) => g.id))) : [];
       const categoryItems = await db.select({ id: t.categories.id, name: t.categories.name, isActive: t.categories.isActive }).from(t.categories).orderBy(asc(t.categories.sortOrder), asc(t.categories.name));
       return {
         provider: {
           ...provider,
-          totalGames: items.length,
-          activeGames: items.filter((game) => game.status === "active").length,
-          inactiveGames: items.filter((game) => game.status === "inactive").length,
-          maintenanceGames: items.filter((game) => game.status === "maintenance").length,
+          totalGames,
+          activeGames: statusCounts.find((row) => row.status === "active")?.total ?? 0,
+          inactiveGames: statusCounts.find((row) => row.status === "inactive")?.total ?? 0,
+          maintenanceGames: statusCounts.find((row) => row.status === "maintenance")?.total ?? 0,
         },
         games: items.map((game) => ({ ...game, categoryIds: links.filter((link) => link.gameId === game.id).map((link) => link.categoryId) })),
         categories: categoryItems,
+        page,
+        pageSize,
+        total: search ? (await db.select({ total: count() }).from(t.games).where(where))[0]?.total ?? 0 : totalGames,
       };
     },
   },
@@ -100,22 +118,27 @@ const routes: Route<C>[] = [
       if (!provider) throw notFound("Provider not found.");
       const [category] = await db.select({ id: t.categories.id, name: t.categories.name }).from(t.categories).where(eq(t.categories.id, body.categoryId));
       if (!category) throw notFound("Category not found.");
-      const selected = body.allProviderGames
-        ? await db.select({ id: t.games.id }).from(t.games).where(eq(t.games.providerId, providerId))
-        : await db.select({ id: t.games.id }).from(t.games).where(and(eq(t.games.providerId, providerId), inArray(t.games.id, body.gameIds ?? [])));
-      if (!body.allProviderGames && selected.length !== new Set(body.gameIds ?? []).size) throw badRequest("Every selected game must belong to this provider.");
+      const selectedIds = body.allProviderGames ? null : [...new Set(body.gameIds ?? [])];
+      const selectedCount = body.allProviderGames
+        ? (await db.select({ total: count() }).from(t.games).where(eq(t.games.providerId, providerId)))[0]?.total ?? 0
+        : (await db.select({ total: count() }).from(t.games).where(and(eq(t.games.providerId, providerId), inArray(t.games.id, selectedIds!))))[0]?.total ?? 0;
+      if (!body.allProviderGames && selectedCount !== selectedIds!.length) throw badRequest("Every selected game must belong to this provider.");
       await db.transaction(async (tx) => {
-        // Chunk inserts to stay below PostgreSQL's bind parameter limit for large providers.
-        for (let offset = 0; offset < selected.length; offset += 1000) {
-          await tx.insert(t.gameCategories).values(selected.slice(offset, offset + 1000).map((game) => ({ gameId: game.id, categoryId: category.id }))).onConflictDoNothing();
-        }
-        await audit(tx, actor(ctx), { action: "providers.games.assign_category", targetType: "category", targetId: String(category.id), description: `Assigned ${selected.length} ${provider.name} game(s) to ${category.name}`, ip });
+        const sourceGames = tx.select({ gameId: t.games.id, categoryId: sql<number>`${category.id}`.as("categoryId") }).from(t.games).where(
+          body.allProviderGames ? eq(t.games.providerId, providerId) : and(eq(t.games.providerId, providerId), inArray(t.games.id, selectedIds!)),
+        );
+        await tx.insert(t.gameCategories).select(sourceGames).onConflictDoNothing();
+        await audit(tx, actor(ctx), { action: "providers.games.assign_category", targetType: "category", targetId: String(category.id), description: `Assigned ${selectedCount} ${provider.name} game(s) to ${category.name}`, ip });
       });
-      return { assigned: selected.length, category: category.name, allProviderGames: Boolean(body.allProviderGames) };
+      return { assigned: selectedCount, category: category.name, allProviderGames: Boolean(body.allProviderGames) };
     },
   },
   { method: "POST", path: "aggregator/test-connection", perm: "games.edit", handler: async () => testAggregatorConnection() },
-  { method: "POST", path: "aggregator/sync", perm: "games.edit", handler: async () => syncAggregatorCatalog() },
+  { method: "POST", path: "aggregator/sync", perm: "games.edit", handler: async ({ ctx, ip }) => {
+    const result = await syncAggregatorCatalog();
+    await audit(db, actor(ctx), { action: "integration.catalog.sync", targetType: "game_api", targetId: "aggregator", description: `Synced ${result.totalFetched} Aggregator games: ${result.newGames} new, ${result.updatedGames} updated, ${result.failedRecords} failed`, ip });
+    return result;
+  } },
   /* ------------------------------ meta & dashboard ------------------------------ */
   {
     method: "GET",
@@ -776,13 +799,45 @@ const routes: Route<C>[] = [
   },
   /* ------------------------------ universal integrations ------------------------------ */
   {
+    method: "POST",
+    path: "integrations/environment/casino_api_pro/catalog/test",
+    handler: async ({ ctx }) => {
+      assertIntPerm(ctx, "game");
+      try { return await testCasinoApiProCatalog(); }
+      catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Catalog request failed." }; }
+    },
+  },
+  {
+    method: "POST",
+    path: "integrations/environment/casino_api_pro/catalog/sync",
+    handler: async ({ ctx, ip }) => {
+      assertIntPerm(ctx, "game");
+      try {
+        const result = await syncCasinoApiProCatalog();
+        await audit(db, actor(ctx), { action: "integration.catalog.sync", targetType: "game_api", targetId: "casino_api_pro", description: `Synced ${result.totalFetched} Casino API Pro games: ${result.newGames} new, ${result.updatedGames} updated, ${result.skipped} skipped`, ip });
+        return result;
+      } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Catalog sync failed." }; }
+    },
+  },
+  {
     method: "GET",
     path: "integrations",
     handler: async ({ req, ctx }) => {
       const kind = query(req).get("kind") === "game" ? "game" : "payment";
       assertIntPerm(ctx, kind);
       const rows = await db.select().from(t.integrations).where(eq(t.integrations.kind, kind)).orderBy(asc(t.integrations.name));
-      return { items: rows.map(safeIntegration), baseUrl: appUrl(req) };
+      const syncIds = [...rows.map((row) => String(row.id)), "aggregator", "casino_api_pro"];
+      const syncLogs = kind === "game" ? await db.select({ targetId: t.auditLogs.targetId, createdAt: t.auditLogs.createdAt }).from(t.auditLogs)
+        .where(and(eq(t.auditLogs.action, "integration.catalog.sync"), or(eq(t.auditLogs.targetType, "integration"), eq(t.auditLogs.targetType, "game_api")), inArray(t.auditLogs.targetId, syncIds)))
+        .orderBy(desc(t.auditLogs.createdAt)) : [];
+      const lastSync = new Map<string, Date>();
+      for (const log of syncLogs) if (log.targetId && !lastSync.has(log.targetId)) lastSync.set(log.targetId, log.createdAt);
+      const environmentApis = kind === "game" ? [
+        { code: "aggregator", name: "Aggregator.gg", type: "Built-in aggregator", configured: Boolean(process.env.AGGREGATOR_API_KEY?.trim() || process.env.GAME_API_KEY?.trim()), endpoint: safeEndpoint(process.env.AGGREGATOR_API_URL?.trim() || process.env.GAME_API_URL?.trim() || "https://api.aggregator.gg/v1"), mode: process.env.AGGREGATOR_MODE?.trim() || "test", lastSyncAt: lastSync.get("aggregator")?.toISOString() ?? null },
+        { code: "casino_api_pro", name: "Casino API Pro", type: "Built-in provider API", configured: Boolean((process.env.CASINOAPIPRO_API_KEY?.trim() || process.env.CASINO_API_KEY?.trim()) && (process.env.CASINOAPIPRO_API_SECRET?.trim() || process.env.CASINO_API_SECRET?.trim())), endpoint: safeEndpoint(process.env.CASINOAPIPRO_BASE_URL?.trim() || process.env.CASINO_API_URL?.trim() || "https://api.casinoapipro.com/v1"), mode: "configured by credentials", lastSyncAt: lastSync.get("casino_api_pro")?.toISOString() ?? null },
+        { code: "game_api_env", name: "Generic Game API (environment)", type: "Legacy environment adapter", configured: Boolean(process.env.GAME_API_URL?.trim() && process.env.GAME_API_KEY?.trim()), endpoint: process.env.GAME_API_URL ? safeEndpoint(process.env.GAME_API_URL.trim()) : "Not configured", mode: "configured by environment", lastSyncAt: null },
+      ] : [];
+      return { items: rows.map((row) => ({ ...safeIntegration(row), lastSyncAt: lastSync.get(String(row.id))?.toISOString() ?? null })), environmentApis, baseUrl: appUrl(req) };
     },
   },
   {
@@ -852,6 +907,47 @@ const routes: Route<C>[] = [
       clearIntegrationCache();
       await audit(db, actor(ctx), { action: "integration.delete", targetType: "integration", targetId: String(row.id), description: `Deleted ${row.kind} integration ${row.code}`, ip });
       return { ok: true };
+    },
+  },
+  {
+    method: "POST",
+    path: "integrations/:id/catalog/test",
+    handler: async ({ ctx, params }) => {
+      const [row] = await db.select().from(t.integrations).where(eq(t.integrations.id, Number(params.id)));
+      if (!row) throw notFound("Integration not found.");
+      assertIntPerm(ctx, row.kind);
+      if (row.kind !== "game") throw badRequest("Catalog operations are only available for game APIs.");
+      try { return await testCatalogConnection(row); }
+      catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Catalog request failed." }; }
+    },
+  },
+  {
+    method: "POST",
+    path: "integrations/:id/catalog/detect",
+    handler: async ({ ctx, params }) => {
+      const [row] = await db.select().from(t.integrations).where(eq(t.integrations.id, Number(params.id)));
+      if (!row) throw notFound("Integration not found.");
+      assertIntPerm(ctx, row.kind);
+      if (row.kind !== "game") throw badRequest("Catalog operations are only available for game APIs.");
+      try {
+        const { records } = await fetchCatalog(row);
+        return { ok: true, ...detectCatalogMapping(row, records) };
+      } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Could not detect catalog fields." }; }
+    },
+  },
+  {
+    method: "POST",
+    path: "integrations/:id/catalog/sync",
+    handler: async ({ ctx, params, ip }) => {
+      const [row] = await db.select().from(t.integrations).where(eq(t.integrations.id, Number(params.id)));
+      if (!row) throw notFound("Integration not found.");
+      assertIntPerm(ctx, row.kind);
+      if (row.kind !== "game") throw badRequest("Catalog operations are only available for game APIs.");
+      try {
+        const result = await syncIntegrationCatalog(row);
+        await audit(db, actor(ctx), { action: "integration.catalog.sync", targetType: "integration", targetId: String(row.id), description: `Synced ${result.totalFetched} catalog record(s) from ${row.name}: ${result.newGames} new, ${result.updatedGames} updated, ${result.skipped} skipped`, ip });
+        return result;
+      } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Catalog sync failed." }; }
     },
   },
   {

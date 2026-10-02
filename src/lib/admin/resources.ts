@@ -43,7 +43,7 @@ export const RESOURCES: ResourceDef[] = [
     viewPerm: "games.view", editPerm: "games.edit", createPerm: "games.create", deletePerm: "games.delete",
     search: ["name", "slug"],
     columns: [
-      { name: "thumbnail", label: "", type: "image" }, { name: "name", label: "Name" }, { name: "providerName", label: "Provider" },
+      { name: "thumbnail", label: "", type: "image" }, { name: "name", label: "Name" }, { name: "providerName", label: "Provider" }, { name: "categoryNames", label: "Categories" }, { name: "apiSource", label: "API Source" },
       { name: "status", label: "Status", type: "badge" }, { name: "isFeatured", label: "Featured", type: "boolean" }, { name: "playCount", label: "Plays" }, { name: "sortOrder", label: "Order" },
     ],
     fields: [

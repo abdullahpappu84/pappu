@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, FlaskConical, KeyRound, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Copy, FlaskConical, KeyRound, Pencil, Plus, RefreshCw, Trash2, Wifi, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -9,7 +9,9 @@ import { api, errMsg, fmtDate } from "@/lib/api";
 import { GAME_SECTIONS, PAYMENT_SECTIONS, PRESETS, VARIABLES, type IntegrationKind, type ISection } from "@/lib/integrations/fields";
 
 type SecretInfo = { name: string; envRef: string | null; set: boolean };
-type Row = { id: number; kind: IntegrationKind; code: string; name: string; isActive: boolean; notes: string | null; config: Record<string, string>; secretInfo: SecretInfo[]; updatedAt: string };
+type EnvironmentApi = { code: string; name: string; type: string; configured: boolean; endpoint: string; mode: string; lastSyncAt: string | null };
+type UnmappedGame = { gameName: string; externalProviderId: string | null; externalProviderName: string | null; reason: string };
+type Row = { id: number; kind: IntegrationKind; code: string; name: string; isActive: boolean; notes: string | null; config: Record<string, string>; secretInfo: SecretInfo[]; updatedAt: string; lastSyncAt?: string | null };
 type SecretDraft = { name: string; value: string; stored: boolean; envRef: string | null; remove?: boolean };
 type Draft = { id?: number; code: string; name: string; isActive: boolean; notes: string; config: Record<string, string>; secrets: SecretDraft[] };
 
@@ -59,11 +61,13 @@ function SectionForm({ section, config, set }: { section: ISection; config: Reco
 }
 
 export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
-  const { data, reload } = useApi<{ items: Row[]; baseUrl: string }>(`/api/admin/integrations?kind=${kind}`);
+  const { data, reload } = useApi<{ items: Row[]; baseUrl: string; environmentApis?: EnvironmentApi[] }>(`/api/admin/integrations?kind=${kind}`);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<{ row: Row; result?: unknown; running?: boolean; gameId: string; mode: "demo" | "real"; amount: string } | null>(null);
+  const [catalogMessage, setCatalogMessage] = useState("");
+  const [unmappedGames, setUnmappedGames] = useState<UnmappedGame[]>([]);
   const sections = kind === "payment" ? PAYMENT_SECTIONS : GAME_SECTIONS;
   const presets = PRESETS.filter((p) => p.kind === kind);
   const base = data?.baseUrl ?? "";
@@ -136,6 +140,39 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
     }
   };
 
+  const runCatalogAction = async (row: Row, action: "test" | "detect" | "sync") => {
+      setBusy(true); setError(null); setCatalogMessage(""); setUnmappedGames([]);
+    try {
+      const result = await api<Record<string, unknown>>(`/api/admin/integrations/${row.id}/catalog/${action}`, { body: {} });
+      if (result.ok === false) throw new Error(String(result.error ?? "Catalog request failed."));
+      if (action === "detect") {
+        const detected = result.detected as Record<string, string>;
+        setDraft((current) => current?.id === row.id ? { ...current, config: { ...current.config, ...detected } } : current);
+        setCatalogMessage(`Detected ${Object.keys(detected).length} fields. Review and save the mapping in the editor.`);
+        return;
+      }
+      setCatalogMessage(action === "test" ? `Connected. Catalog returned ${result.fetched} games.` : `Fetched ${result.totalFetched}; ${result.newGames} new, ${result.updatedGames} updated, ${result.skipped} skipped; providers: ${result.providersMatched} matched, ${result.providersCreated} created; thumbnails updated: ${result.thumbnailsUpdated}.`);
+      const unmapped = Array.isArray(result.unmappedGames) ? result.unmappedGames as UnmappedGame[] : [];
+      if (action === "sync" && unmapped.length) {
+        setUnmappedGames(unmapped);
+        setCatalogMessage((message) => `${message} ${unmapped.length} game(s) have no provider mapping.`);
+      }
+      if (action === "sync") reload();
+    } catch (e) { setCatalogMessage(errMsg(e)); }
+    finally { setBusy(false); }
+  };
+
+  const runEnvironmentAction = async (source: EnvironmentApi, action: "test" | "sync") => {
+    setBusy(true); setError(null); setCatalogMessage(""); setUnmappedGames([]);
+    try {
+      const result = await api<Record<string, unknown>>(`/api/admin/integrations/environment/${source.code}/catalog/${action}`, { body: {} });
+      if (result.ok === false) throw new Error(String(result.error ?? "Catalog request failed."));
+      setCatalogMessage(action === "test" ? `${source.name} connected. Catalog returned ${result.fetched} games.` : `${source.name}: fetched ${result.totalFetched}; ${result.newGames} new, ${result.updatedGames} updated, ${result.skipped} skipped; provider ${result.providersMatched ? "matched" : "created"}; thumbnails updated: ${result.thumbnailsUpdated}.`);
+      if (action === "sync") reload();
+    } catch (e) { setCatalogMessage(errMsg(e)); }
+    finally { setBusy(false); }
+  };
+
   return (
     <Card
       title={kind === "payment" ? "Custom payment gateways" : "Custom game APIs"}
@@ -147,23 +184,40 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
           : "Connect any game provider or aggregator without code: set its launch API/URL template and wallet-callback mapping, then choose this integration as the adapter on a provider (Games → Providers)."}{" "}
         Full guide: <a href="/install/integrations" target="_blank" className="text-gold-300 underline">/install/integrations</a>
       </p>
+      {kind === "game" && data?.environmentApis?.length ? <div className="mb-5 grid gap-2 md:grid-cols-3">
+        {data.environmentApis.map((source) => <div key={source.code} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+          <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-white">{source.name}</span><StatusBadge status={source.configured ? "configured" : "not configured"} /></div>
+          <p className="mt-1 text-[11px] text-white/45">{source.type} · {source.mode}</p>
+          <p className="mt-1 truncate font-mono text-[10px] text-white/35" title={source.endpoint}>{source.endpoint}</p>
+          <p className="mt-1 text-[10px] text-white/35">Last sync: {source.lastSyncAt ? fmtDate(source.lastSyncAt, false) : "Never"}</p>
+          {source.code === "casino_api_pro" && <div className="mt-2 flex gap-2">
+            <Button size="xs" variant="outline" disabled={busy || !source.configured} onClick={() => runEnvironmentAction(source, "test")}>Test connection</Button>
+            <Button size="xs" disabled={busy || !source.configured} onClick={() => runEnvironmentAction(source, "sync")}>Sync games</Button>
+          </div>}
+        </div>)}
+      </div> : null}
       {!data ? (
         <Spinner />
       ) : !data.items.length ? (
         <Empty text="No custom integrations yet." />
       ) : (
-        <Table head={["Name", "Code", "Endpoint", "Secrets", "Status", "Updated", ""]}>
+        <Table head={["Name", "Code", "Endpoint", "Secrets", "Status", "Updated", "Last sync", ""]}>
           {data.items.map((r) => (
             <tr key={r.id} className="text-white/80">
               <td className="font-semibold text-white">{r.name}</td>
               <td className="font-mono text-[12px]">{r.code}</td>
-              <td className="max-w-[240px] truncate font-mono text-[11px] text-white/50">{r.config.createUrl || r.config.launchUrl || "—"}</td>
+              <td className="max-w-[240px] truncate font-mono text-[11px] text-white/50">{r.config.createUrl || r.config.catalogUrl || r.config.launchUrl || "—"}</td>
               <td className="text-[12px]">
                 {r.secretInfo.length ? r.secretInfo.map((s) => <span key={s.name} className={`mr-1 inline-block rounded px-1.5 py-0.5 text-[10px] ${s.set ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>{s.name}{s.envRef ? " (env)" : ""}</span>) : "—"}
               </td>
               <td><StatusBadge status={r.isActive ? "active" : "inactive"} /></td>
               <td className="text-white/50">{fmtDate(r.updatedAt, false)}</td>
+              <td className="text-white/50">{r.lastSyncAt ? fmtDate(r.lastSyncAt, false) : "Never"}</td>
               <td className="whitespace-nowrap text-right">
+                {kind === "game" && <>
+                  <button disabled={busy} onClick={() => runCatalogAction(r, "test")} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-emerald-300 disabled:opacity-40" aria-label="Test catalog connection" title="Test catalog connection"><Wifi className="h-3.5 w-3.5" /></button>
+                  <button disabled={busy} onClick={() => runCatalogAction(r, "sync")} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-sky-300 disabled:opacity-40" aria-label="Sync games" title="Sync games"><RefreshCw className="h-3.5 w-3.5" /></button>
+                </>}
                 <button onClick={() => setTest({ row: r, gameId: "", mode: "demo", amount: "10" })} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-sky-300" aria-label="Test"><FlaskConical className="h-3.5 w-3.5" /></button>
                 <button onClick={() => openEdit(r)} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-gold-200" aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></button>
                 <button onClick={() => remove(r)} className="inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-rose-300" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -172,6 +226,11 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
           ))}
         </Table>
       )}
+      {catalogMessage && kind === "game" && <p className="mt-3 text-[12.5px] text-white/70">{catalogMessage}</p>}
+      {unmappedGames.length > 0 && <details className="mt-2 rounded-xl border border-amber-300/20 p-3 text-[12px]">
+        <summary className="cursor-pointer font-semibold text-amber-200">Unmapped games ({unmappedGames.length})</summary>
+        <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">{unmappedGames.map((game, index) => <p key={`${game.gameName}-${index}`} className="text-white/60"><span className="text-white">{game.gameName}</span> · provider ID: {game.externalProviderId || "—"} · provider: {game.externalProviderName || "—"} · {game.reason}</p>)}</div>
+      </details>}
 
       {/* ---------------- Editor ---------------- */}
       <Modal open={!!draft} onClose={() => setDraft(null)} label="Integration" maxWidth="md:max-w-[980px]">
@@ -206,6 +265,11 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
             </fieldset>
 
             {sections.map((s) => <SectionForm key={s.title} section={s} config={draft.config} set={(k, v) => setDraft({ ...draft, config: { ...draft.config, [k]: v } })} />)}
+            {kind === "game" && <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" disabled={busy || !draft.id} onClick={() => draft.id && runCatalogAction(data?.items.find((row) => row.id === draft.id) ?? ({ ...draft, kind: "game", isActive: draft.isActive, notes: draft.notes || null, config: draft.config, secretInfo: [], updatedAt: "" } as Row), "detect")}>Detect fields from catalog</Button>
+              {!draft.id && <span className="text-[11px] text-white/40">Save this API before testing or detecting its catalog.</span>}
+              {catalogMessage && <span className="text-[12px] text-white/65">{catalogMessage}</span>}
+            </div>}
 
             <details className="rounded-2xl border border-white/[0.07] p-4 text-[12.5px]">
               <summary className="cursor-pointer font-semibold text-white">Template variables &amp; filters</summary>
