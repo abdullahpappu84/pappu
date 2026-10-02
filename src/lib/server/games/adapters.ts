@@ -6,6 +6,8 @@ import { aggregatorGameSessions, wallets, type games } from "@/db/schema";
 import { AggregatorError, aggregatorRequest } from "@/lib/aggregator";
 import { aggregatorCurrencyExponent, assertAggregatorWalletCurrency } from "@/lib/aggregator-money";
 import { conflict } from "../http";
+import { aggregatorConnection, ensureAggregatorGameApi } from "../integrations/aggregator";
+import { type IntegrationRow } from "../integrations/store";
 
 /**
  * ============================================================================
@@ -91,11 +93,21 @@ const aggregatorAdapter: GameAdapter = {
   code: "aggregator",
   label: "Aggregator.gg",
   async launch(i) {
+    const api = await ensureAggregatorGameApi();
+    if (!api?.isActive) throw conflict("Aggregator API is disabled or not configured in Game API Management.");
+    return launchAggregatorGame(api, i);
+  },
+};
+
+export async function launchAggregatorGame(api: IntegrationRow, i: LaunchInput): Promise<LaunchResult> {
+    if (!api.isActive) throw conflict(`${api.name} is disabled.`);
+    const connection = aggregatorConnection(api);
+    const config = api.config ?? {};
     const aggregatorGameId = i.game.aggregatorGameId ?? i.game.integrationRef;
     if (!aggregatorGameId || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(aggregatorGameId)) {
       throw conflict(`${i.game.name} needs The Aggregator catalog game UUID (the catalog id field), not provider_game_id.`);
     }
-    const currency = (i.user?.currency ?? env("GAME_DEFAULT_CURRENCY") ?? "EUR").toUpperCase();
+    const currency = (i.user?.currency ?? config.currency ?? "EUR").toUpperCase();
     if (i.mode === "real") assertAggregatorWalletCurrency(currency);
     if (i.mode === "demo" && !i.game.hasDemo) throw conflict(`${i.game.name} does not support demo sessions.`);
     const path = i.mode === "demo" ? "/demo-sessions" : "/sessions";
@@ -105,8 +117,8 @@ const aggregatorAdapter: GameAdapter = {
           return Math.round((Number(w?.mainBalance ?? 0) + Number(w?.bonusBalance ?? 0)) * (10 ** aggregatorCurrencyExponent(currency)));
         })()
       : 0;
-    const alpha2 = countryCode(i.country) ?? countryCode(env("GAME_DEFAULT_COUNTRY"));
-    if (i.mode === "real" && !alpha2) throw conflict("Set the player's two-letter country or GAME_DEFAULT_COUNTRY for Aggregator sessions.");
+    const alpha2 = countryCode(i.country) ?? countryCode(config.country);
+    if (i.mode === "real" && !alpha2) throw conflict(`Set the player's country or the country on ${api.name} before launching real games.`);
     if (i.mode === "real" && alpha2 && i.game.blockedCountries?.includes(alpha2)) throw conflict("This game is not available in your country.");
     if (i.mode === "real" && i.game.supportedCurrencies?.length && !i.game.supportedCurrencies.includes(currency)) throw conflict("This game does not support your wallet currency.");
     const body = JSON.stringify(i.mode === "demo" ? { game_id: aggregatorGameId } : {
@@ -122,7 +134,7 @@ const aggregatorAdapter: GameAdapter = {
     if (i.mode === "real") headers["Idempotency-Key"] = randomUUID();
     let data: { game_url: string; session_id: string };
     try {
-      ({ data } = await aggregatorRequest<typeof data>(path, { method: "POST", headers, body }));
+      ({ data } = await aggregatorRequest<typeof data>(path, connection, { method: "POST", headers, body }));
     } catch (e) {
       if (e instanceof AggregatorError) {
         console.error("[games] Aggregator session request failed", e.status, e.code ?? "unknown");
@@ -142,8 +154,7 @@ const aggregatorAdapter: GameAdapter = {
       });
     }
     return { url, display: "redirect" };
-  },
-};
+}
 
 const casinoApiProAdapter: GameAdapter = {
   code: "casino_api_pro",

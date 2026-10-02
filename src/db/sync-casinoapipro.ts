@@ -86,6 +86,8 @@ async function main() {
           slug,
           name: remote.name,
           providerId: provider.id,
+          apiSource: "casino_api_pro",
+          apiExternalId: remote.slug,
           ...(remote.thumbnail_url ? { thumbnail: remote.thumbnail_url } : {}),
           ...(remote.description ? { description: remote.description } : {}),
           integrationRef: remote.slug,

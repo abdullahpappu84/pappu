@@ -111,12 +111,18 @@ export async function syncIntegrationCatalog(row: IntegrationRow) {
       }
 
       const slug = `api-${slugify(row.code)}-${slugify(externalId)}`.slice(0, 120);
-      const [old] = await db.select().from(games).where(or(eq(games.slug, slug), and(providerId ? eq(games.providerId, providerId) : sql`false`, eq(games.providerGameId, externalId)))).limit(1);
+      const [oldExact] = await db.select().from(games).where(and(eq(games.apiSource, row.code), eq(games.apiExternalId, externalId.slice(0, 160)))).limit(1);
+      const [old] = oldExact ? [oldExact] : await db.select().from(games).where(or(
+        eq(games.slug, slug),
+        and(providerId ? eq(games.providerId, providerId) : sql`false`, eq(games.providerGameId, externalId), eq(games.apiSource, row.code)),
+      )).limit(1);
       const thumbnail = resolveThumbnail(get(record, "thumbnail"), thumbnailBaseUrl);
       const rtpRaw = get(record, "rtp");
       const rtp = Number(rtpRaw);
       const values = {
         ...(providerId ? { providerId } : {}),
+        apiSource: row.code,
+        apiExternalId: externalId.slice(0, 160),
         ...(externalProviderCode ? { providerCode: externalProviderCode.slice(0, 80) } : {}),
         providerGameId: externalId.slice(0, 160), integrationRef: externalId.slice(0, 120),
         ...(thumbnail ? { thumbnail } : {}),

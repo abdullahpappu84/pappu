@@ -99,7 +99,7 @@ export const RESOURCES: ResourceDef[] = [
       { name: "name", label: "Name", type: "text", required: true },
       { name: "slug", label: "Slug", type: "text", required: true },
       { name: "logoUrl", label: "Logo", type: "image" },
-      { name: "adapter", label: "Integration adapter", type: "select", required: true, optionsFrom: "gameAdapters", help: "direct = per-game Game URL (iframe) · aggregator = launch via GAME_API_URL + GAME_API_KEY from server .env" },
+      { name: "adapter", label: "Integration adapter", type: "select", required: true, optionsFrom: "gameAdapters", help: "Choose the Game API configuration that launches this provider." },
       { name: "isActive", label: "Enabled", type: "boolean" },
       { name: "sortOrder", label: "Sort order", type: "number", required: true },
     ],

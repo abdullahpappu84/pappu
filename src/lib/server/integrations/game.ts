@@ -9,6 +9,7 @@ import type { GameAdapter } from "../games/adapters";
 import { verifyGameToken } from "../games/launch";
 import { baseVars, getPath, lines, listOf, mask, num, readIncoming, render, sendRequest, str, verifySignature, type Cfg, type DebugLog, type Vars } from "./engine";
 import { resolveSecrets, type IntegrationRow } from "./store";
+import { launchAggregatorGame } from "../games/adapters";
 
 const DEFAULT_OK = '{"status":"OK","balance":{{balance}},"currency":"{{currency}}","transaction_id":"{{transaction_id}}"}';
 const DEFAULT_ERR = '{"status":"ERROR","error_code":"{{error_code}}","message":"{{message}}"}';
@@ -17,6 +18,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Builds a GameAdapter (launch) from an admin-configured integration row. */
 export function buildGameAdapter(row: IntegrationRow, debug?: DebugLog): GameAdapter {
   const c = (row.config ?? {}) as Cfg;
+  if (c.apiType === "aggregator") return {
+    code: row.code,
+    label: row.name,
+    launch: (input) => launchAggregatorGame(row, input),
+  };
   return {
     code: row.code,
     label: row.name,

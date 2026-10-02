@@ -61,6 +61,7 @@ export async function syncCasinoApiProCatalog() {
         const rtp = Number(remote.rtp);
         const apiFields = {
           name: remote.name.slice(0, 120), providerId: provider.id,
+          apiSource: "casino_api_pro", apiExternalId: remote.slug.slice(0, 160),
           providerGameId: remote.slug.slice(0, 160), integrationRef: remote.slug.slice(0, 120),
           ...(remote.thumbnail_url ? { thumbnail: resolveThumbnail(remote.thumbnail_url, base) } : {}),
           ...(remote.description ? { description: remote.description } : {}),

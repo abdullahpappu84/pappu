@@ -27,8 +27,12 @@ async function run() {
       const files = readMigrationFiles({ migrationsFolder: MIGRATIONS });
       await tx.execute(sql`create schema if not exists drizzle`);
       await tx.execute(sql`create table if not exists drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)`);
-      for (const f of files) await tx.execute(sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${f.hash}, ${f.folderMillis})`);
-      console.info(`[db] existing schema detected — baselined ${files.length} migration(s)`);
+      const identityColumn = await tx.execute<{ present: boolean }>(sql`select exists (
+        select 1 from information_schema.columns where table_schema = 'public' and table_name = 'games' and column_name = 'api_source'
+      ) as present`);
+      const baseline = identityColumn.rows[0]?.present ? files : files.slice(0, -1);
+      for (const f of baseline) await tx.execute(sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${f.hash}, ${f.folderMillis})`);
+      console.info(`[db] existing schema detected — baselined ${baseline.length} prior migration(s)`);
     }
   });
   await migrate(db, { migrationsFolder: MIGRATIONS });

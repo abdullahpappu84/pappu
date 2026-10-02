@@ -22,6 +22,13 @@
       "when": 1790847873981,
       "tag": "0002_aggregator_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790952142000,
+      "tag": "0003_game_api_identity",
+      "breakpoints": true
     }
   ]
 }

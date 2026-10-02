@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, FlaskConical, KeyRound, Pencil, Plus, RefreshCw, Trash2, Wifi, X } from "lucide-react";
+import { Copy, FlaskConical, KeyRound, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -11,7 +11,7 @@ import { GAME_SECTIONS, PAYMENT_SECTIONS, PRESETS, VARIABLES, type IntegrationKi
 type SecretInfo = { name: string; envRef: string | null; set: boolean };
 type EnvironmentApi = { code: string; name: string; type: string; configured: boolean; endpoint: string; mode: string; lastSyncAt: string | null };
 type UnmappedGame = { gameName: string; externalProviderId: string | null; externalProviderName: string | null; reason: string };
-type Row = { id: number; kind: IntegrationKind; code: string; name: string; isActive: boolean; notes: string | null; config: Record<string, string>; secretInfo: SecretInfo[]; updatedAt: string; lastSyncAt?: string | null };
+type Row = { id: number; kind: IntegrationKind; code: string; name: string; isActive: boolean; notes: string | null; config: Record<string, string>; secretInfo: SecretInfo[]; updatedAt: string; lastTestAt?: string | null; lastSyncAt?: string | null; gameCount?: number; apiType?: string; mode?: string };
 type SecretDraft = { name: string; value: string; stored: boolean; envRef: string | null; remove?: boolean };
 type Draft = { id?: number; code: string; name: string; isActive: boolean; notes: string; config: Record<string, string>; secrets: SecretDraft[] };
 
@@ -68,6 +68,8 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
   const [test, setTest] = useState<{ row: Row; result?: unknown; running?: boolean; gameId: string; mode: "demo" | "real"; amount: string } | null>(null);
   const [catalogMessage, setCatalogMessage] = useState("");
   const [unmappedGames, setUnmappedGames] = useState<UnmappedGame[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
+  const [deletePolicy, setDeletePolicy] = useState<"keep" | "disable" | "delete">("keep");
   const sections = kind === "payment" ? PAYMENT_SECTIONS : GAME_SECTIONS;
   const presets = PRESETS.filter((p) => p.kind === kind);
   const base = data?.baseUrl ?? "";
@@ -81,7 +83,7 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
 
   const openNew = () => {
     setError(null);
-    setDraft({ code: "", name: "", isActive: true, notes: "", config: { ...presets[0].config }, secrets: presets[0].secrets.map((n) => ({ name: n, value: "", stored: false, envRef: null })) });
+    setDraft({ code: "", name: "", isActive: true, notes: "", config: { ...presets[0].config, apiType: "custom" }, secrets: presets[0].secrets.map((n) => ({ name: n, value: "", stored: false, envRef: null })) });
   };
   const openEdit = (r: Row) => {
     setError(null);
@@ -92,6 +94,20 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
     if (!p || !draft) return;
     const existing = new Set(draft.secrets.map((s) => s.name));
     setDraft({ ...draft, config: { ...p.config }, secrets: [...draft.secrets, ...p.secrets.filter((n) => !existing.has(n)).map((n) => ({ name: n, value: "", stored: false, envRef: null }))] });
+  };
+
+  const setApiType = (value: string) => {
+    if (!draft) return;
+    const aggregator = value === "aggregator";
+    const required = aggregator ? ["API_KEY", "API_SECRET", "WEBHOOK_SECRET"] : [];
+    const present = new Set(draft.secrets.map((secret) => secret.name));
+    setDraft({
+      ...draft,
+      name: aggregator && !draft.id ? "Aggregator.gg" : draft.name,
+      code: aggregator && !draft.id ? "aggregator" : !aggregator && !draft.id && draft.code === "aggregator" ? "" : draft.code,
+      config: { ...draft.config, apiType: value, ...(aggregator ? { baseUrl: draft.config.baseUrl || "https://api.aggregator.gg/v1", catalogMode: draft.config.catalogMode || "sandbox", currency: draft.config.currency || "EUR" } : {}) },
+      secrets: [...draft.secrets, ...required.filter((name) => !present.has(name)).map((name) => ({ name, value: "", stored: false, envRef: null }))],
+    });
   };
 
   const save = async () => {
@@ -119,10 +135,11 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
     }
   };
 
-  const remove = async (r: Row) => {
-    if (!confirm(`Delete integration "${r.name}"? ${kind === "payment" ? "Its payment method will be disabled." : "Providers using it will stop launching games."}`)) return;
+  const remove = async () => {
+    if (!deleteTarget) return;
     try {
-      await api(`/api/admin/integrations/${r.id}`, { method: "DELETE" });
+      await api(`/api/admin/integrations/${deleteTarget.id}`, { method: "DELETE", body: { gamePolicy: deletePolicy } });
+      setDeleteTarget(null);
       reload();
     } catch (e) {
       alert(errMsg(e));
@@ -140,8 +157,10 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
     }
   };
 
-  const runCatalogAction = async (row: Row, action: "test" | "detect" | "sync") => {
-      setBusy(true); setError(null); setCatalogMessage(""); setUnmappedGames([]);
+  const runCatalogAction = async (row: Row, action: "test" | "detect" | "sync" | "clean-sync") => {
+    if (row.apiType === "aggregator" && action === "sync" && !confirm(`Re-sync ${row.name}? This fetches the current catalog, updates matches by external game ID, repairs provider and image links, and keeps local categories/settings.`)) return;
+    if (action === "clean-sync" && !confirm(`Clean & Re-sync ${row.name}? This rebuilds the API catalog mapping and disables stale games after a complete successful fetch. It does not delete games or categories.`)) return;
+    setBusy(true); setError(null); setCatalogMessage(""); setUnmappedGames([]);
     try {
       const result = await api<Record<string, unknown>>(`/api/admin/integrations/${row.id}/catalog/${action}`, { body: {} });
       if (result.ok === false) throw new Error(String(result.error ?? "Catalog request failed."));
@@ -151,13 +170,13 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
         setCatalogMessage(`Detected ${Object.keys(detected).length} fields. Review and save the mapping in the editor.`);
         return;
       }
-      setCatalogMessage(action === "test" ? `Connected. Catalog returned ${result.fetched} games.` : `Fetched ${result.totalFetched}; ${result.newGames} new, ${result.updatedGames} updated, ${result.skipped} skipped; providers: ${result.providersMatched} matched, ${result.providersCreated} created; thumbnails updated: ${result.thumbnailsUpdated}.`);
+      setCatalogMessage(action === "test" ? `Connected. Catalog returned ${result.fetched ?? result.totalGames ?? 0} games.` : `Fetched ${result.totalFetched}; ${result.newGames} new, ${result.updatedGames} updated, ${result.skipped ?? result.failedRecords ?? 0} errors; providers: ${result.providersMatched} matched, ${result.providersCreated} created; thumbnails updated: ${result.thumbnailsUpdated}.${action === "clean-sync" ? ` Stale games disabled: ${result.staleGamesDisabled ?? 0}.` : ""}`);
       const unmapped = Array.isArray(result.unmappedGames) ? result.unmappedGames as UnmappedGame[] : [];
       if (action === "sync" && unmapped.length) {
         setUnmappedGames(unmapped);
         setCatalogMessage((message) => `${message} ${unmapped.length} game(s) have no provider mapping.`);
       }
-      if (action === "sync") reload();
+      if (action === "sync" || action === "clean-sync") reload();
     } catch (e) { setCatalogMessage(errMsg(e)); }
     finally { setBusy(false); }
   };
@@ -184,8 +203,8 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
           : "Connect any game provider or aggregator without code: set its launch API/URL template and wallet-callback mapping, then choose this integration as the adapter on a provider (Games → Providers)."}{" "}
         Full guide: <a href="/install/integrations" target="_blank" className="text-gold-300 underline">/install/integrations</a>
       </p>
-      {kind === "game" && data?.environmentApis?.length ? <div className="mb-5 grid gap-2 md:grid-cols-3">
-        {data.environmentApis.map((source) => <div key={source.code} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
+      {kind === "game" && data?.environmentApis?.some((source) => source.code !== "aggregator") ? <div className="mb-5 grid gap-2 md:grid-cols-3">
+        {data.environmentApis.filter((source) => source.code !== "aggregator").map((source) => <div key={source.code} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
           <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-white">{source.name}</span><StatusBadge status={source.configured ? "configured" : "not configured"} /></div>
           <p className="mt-1 text-[11px] text-white/45">{source.type} · {source.mode}</p>
           <p className="mt-1 truncate font-mono text-[10px] text-white/35" title={source.endpoint}>{source.endpoint}</p>
@@ -201,7 +220,12 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
       ) : !data.items.length ? (
         <Empty text="No custom integrations yet." />
       ) : (
-        <Table head={["Name", "Code", "Endpoint", "Secrets", "Status", "Updated", "Last sync", ""]}>
+        kind === "game" ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{data.items.map((r) => <article key={r.id} className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+          <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h4 className="truncate font-semibold text-white">{r.name}</h4><p className="text-[11px] text-white/45">{{ aggregator: "Aggregator", custom: "Custom API", generic: "Generic API" }[r.apiType || "custom"] || "Custom API"} · {r.mode || "sandbox"}</p></div><StatusBadge status={r.isActive ? "active" : "inactive"}/></div>
+          <p className="mt-3 truncate font-mono text-[10px] text-white/40" title={r.config.catalogUrl || r.config.launchUrl}>{r.config.catalogUrl || r.config.launchUrl || "Endpoint not configured"}</p>
+          <p className="mt-2 text-xs text-white/55">{(r.gameCount ?? 0).toLocaleString()} games · Last test: {r.lastTestAt ? fmtDate(r.lastTestAt, false) : "Not tested"} · Last sync: {r.lastSyncAt ? fmtDate(r.lastSyncAt, false) : "Never"}</p>
+          <div className="mt-3 flex flex-wrap gap-2"><Button size="xs" variant="outline" disabled={busy} onClick={() => runCatalogAction(r, "test")}>Test</Button><Button size="xs" disabled={busy || !r.isActive} onClick={() => runCatalogAction(r, "sync")}>{r.apiType === "aggregator" ? "Re-sync Games" : "Sync"}</Button>{r.apiType === "aggregator" && <Button size="xs" variant="outline" className="border-amber-300/30 text-amber-200" disabled={busy || !r.isActive} onClick={() => runCatalogAction(r, "clean-sync")}>Clean &amp; Re-sync</Button>}<Button size="xs" variant="outline" onClick={async()=>{try{await api(`/api/admin/integrations/${r.id}`,{method:"PATCH",body:{isActive:!r.isActive}});reload();}catch(e){alert(errMsg(e));}}}>{r.isActive ? "Disable" : "Enable"}</Button><Button size="xs" variant="outline" onClick={() => openEdit(r)}>Edit</Button><Button size="xs" variant="outline" className="border-rose-400/30 text-rose-300" onClick={() => { setDeleteTarget(r); setDeletePolicy("keep"); }}>Delete</Button></div>
+        </article>)}</div> : <Table head={["Name", "Code", "Endpoint", "Secrets", "Status", "Updated", ""]}>
           {data.items.map((r) => (
             <tr key={r.id} className="text-white/80">
               <td className="font-semibold text-white">{r.name}</td>
@@ -212,15 +236,10 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
               </td>
               <td><StatusBadge status={r.isActive ? "active" : "inactive"} /></td>
               <td className="text-white/50">{fmtDate(r.updatedAt, false)}</td>
-              <td className="text-white/50">{r.lastSyncAt ? fmtDate(r.lastSyncAt, false) : "Never"}</td>
               <td className="whitespace-nowrap text-right">
-                {kind === "game" && <>
-                  <button disabled={busy} onClick={() => runCatalogAction(r, "test")} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-emerald-300 disabled:opacity-40" aria-label="Test catalog connection" title="Test catalog connection"><Wifi className="h-3.5 w-3.5" /></button>
-                  <button disabled={busy} onClick={() => runCatalogAction(r, "sync")} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-sky-300 disabled:opacity-40" aria-label="Sync games" title="Sync games"><RefreshCw className="h-3.5 w-3.5" /></button>
-                </>}
                 <button onClick={() => setTest({ row: r, gameId: "", mode: "demo", amount: "10" })} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-sky-300" aria-label="Test"><FlaskConical className="h-3.5 w-3.5" /></button>
                 <button onClick={() => openEdit(r)} className="mr-2 inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-gold-200" aria-label="Edit"><Pencil className="h-3.5 w-3.5" /></button>
-                <button onClick={() => remove(r)} className="inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-rose-300" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                <button onClick={() => { setDeleteTarget(r); setDeletePolicy("keep"); }} className="inline-grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-white/70 hover:text-rose-300" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
               </td>
             </tr>
           ))}
@@ -232,12 +251,17 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
         <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">{unmappedGames.map((game, index) => <p key={`${game.gameName}-${index}`} className="text-white/60"><span className="text-white">{game.gameName}</span> · provider ID: {game.externalProviderId || "—"} · provider: {game.externalProviderName || "—"} · {game.reason}</p>)}</div>
       </details>}
 
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} label="Delete API">
+        {deleteTarget && <div className="space-y-4 p-5"><h3 className="text-lg font-semibold text-white">Delete {deleteTarget.name}?</h3><p className="text-sm text-white/55">Deleting the API configuration does not automatically delete its existing games.</p>{kind === "game" && <div className="space-y-2">{([["keep", "Keep existing games"], ["disable", "Disable games from this API"], ["delete", "Delete games from this API"]] as const).map(([value, label]) => <label key={value} className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 p-3 text-sm text-white/75"><input type="radio" name="game-policy" checked={deletePolicy === value} onChange={() => setDeletePolicy(value)} />{label}</label>)}</div>}<div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button><Button className="bg-rose-600 text-white" onClick={remove}>Delete API</Button></div></div>}
+      </Modal>
+
       {/* ---------------- Editor ---------------- */}
       <Modal open={!!draft} onClose={() => setDraft(null)} label="Integration" maxWidth="md:max-w-[980px]">
         {draft && (
           <div className="space-y-4 p-5 md:p-7">
             <h2 className="font-display text-[24px] font-semibold text-white">{draft.id ? `Edit ${draft.name}` : kind === "payment" ? "New payment gateway" : "New game API"}</h2>
             <div className="grid gap-3 md:grid-cols-3">
+              {kind === "game" && <div className="md:col-span-3"><Select label="API Type" value={draft.config.apiType || "custom"} disabled={draft.id !== undefined && draft.config.apiType === "aggregator"} onChange={(e) => setApiType(e.target.value)} options={[{value:"aggregator",label:"Aggregator"},{value:"custom",label:"Custom API"},{value:"generic",label:"Generic API"}]} /></div>}
               <Input label="Display name *" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={kind === "payment" ? "aamarPay" : "Evo Aggregator"} />
               <Input label="Code * (used in URLs)" value={draft.code} disabled={!!draft.id} onChange={(e) => setDraft({ ...draft, code: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") })} placeholder={kind === "payment" ? "aamarpay" : "evoagg"} hint="lowercase, cannot be changed later" />
               <label className="flex items-center justify-between rounded-xl border border-white/10 px-3.5 text-[13px] text-white/80 md:mt-6">
@@ -245,6 +269,7 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
                 <input type="checkbox" className="h-4 w-4 accent-[#f0b93f]" checked={draft.isActive} onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })} />
               </label>
             </div>
+            {kind === "game" && draft.config.apiType === "aggregator" && <fieldset className="grid gap-3 rounded-2xl border border-gold-300/20 p-4 sm:grid-cols-2"><legend className="px-2 text-sm font-semibold text-gold-200">Aggregator connection</legend><Input label="Base URL *" value={draft.config.baseUrl || ""} onChange={(e) => setDraft({...draft,config:{...draft.config,baseUrl:e.target.value.trim()}})} placeholder="https://api.aggregator.gg/v1"/><Select label="Environment" value={draft.config.catalogMode || "sandbox"} onChange={(e)=>setDraft({...draft,config:{...draft.config,catalogMode:e.target.value}})} options={[{value:"sandbox",label:"Sandbox / Test"},{value:"live",label:"Live"}]}/><Input label="Operator ID" value={draft.config.operatorId || ""} onChange={(e)=>setDraft({...draft,config:{...draft.config,operatorId:e.target.value}})}/><Input label="Currency" value={draft.config.currency || "EUR"} onChange={(e)=>setDraft({...draft,config:{...draft.config,currency:e.target.value.toUpperCase()}})}/><Input label="Country" value={draft.config.country || ""} onChange={(e)=>setDraft({...draft,config:{...draft.config,country:e.target.value.toUpperCase()}})} placeholder="BD"/><p className="self-end text-xs text-white/45">API credentials remain encrypted on the server.</p></fieldset>}
             <Select label="Load a preset template (optional)" value="" onChange={(e) => e.target.value && applyPreset(e.target.value)} options={[{ value: "", label: "— choose a preset to prefill all fields —" }, ...presets.map((p) => ({ value: p.id, label: `${p.name} — ${p.description}` }))]} />
             <div className="grid gap-3 md:grid-cols-2">{urls(draft.code).map(([l, v]) => <CopyField key={l} label={l} value={v} />)}</div>
 
@@ -264,7 +289,7 @@ export function IntegrationsSection({ kind }: { kind: IntegrationKind }) {
               <Button type="button" size="xs" variant="outline" className="mt-3" onClick={() => setDraft({ ...draft, secrets: [...draft.secrets, { name: "", value: "", stored: false, envRef: null }] })}>+ Add secret</Button>
             </fieldset>
 
-            {sections.map((s) => <SectionForm key={s.title} section={s} config={draft.config} set={(k, v) => setDraft({ ...draft, config: { ...draft.config, [k]: v } })} />)}
+            {!(kind === "game" && draft.config.apiType === "aggregator") && sections.map((s) => <SectionForm key={s.title} section={s} config={draft.config} set={(k, v) => setDraft({ ...draft, config: { ...draft.config, [k]: v } })} />)}
             {kind === "game" && <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" disabled={busy || !draft.id} onClick={() => draft.id && runCatalogAction(data?.items.find((row) => row.id === draft.id) ?? ({ ...draft, kind: "game", isActive: draft.isActive, notes: draft.notes || null, config: draft.config, secretInfo: [], updatedAt: "" } as Row), "detect")}>Detect fields from catalog</Button>
               {!draft.id && <span className="text-[11px] text-white/40">Save this API before testing or detecting its catalog.</span>}

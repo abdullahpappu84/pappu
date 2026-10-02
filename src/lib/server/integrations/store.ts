@@ -7,7 +7,7 @@ import { badRequest } from "../http";
 export type IntegrationRow = typeof integrations.$inferSelect;
 
 /** Codes used by built-in adapters — custom integrations cannot reuse them. */
-export const RESERVED_CODES = ["manual", "stripe", "sslcommerz", "bkash", "nowpayments", "custom", "direct", "aggregator"];
+export const RESERVED_CODES = ["manual", "stripe", "sslcommerz", "bkash", "nowpayments", "custom", "direct"];
 
 const g = globalThis as typeof globalThis & { __arIntegrations?: { at: number; rows: IntegrationRow[] } };
 

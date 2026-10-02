@@ -13,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   varchar,
   type AnyPgColumn,
@@ -264,6 +265,9 @@ export const games = pgTable(
     description: text("description"),
     gameUrl: text("game_url"),
     integrationRef: varchar("integration_ref", { length: 120 }),
+    /** Stable source key and external catalog identity across aggregators and direct APIs. */
+    apiSource: varchar("api_source", { length: 40 }),
+    apiExternalId: varchar("api_external_id", { length: 160 }),
     aggregatorGameId: varchar("aggregator_game_id", { length: 64 }).unique(),
     providerGameId: varchar("provider_game_id", { length: 160 }),
     providerCode: varchar("provider_code", { length: 80 }),
@@ -295,7 +299,7 @@ export const games = pgTable(
     createdAt: created(),
     updatedAt: updated(),
   },
-  (t) => [index("games_status_idx").on(t.status), index("games_provider_idx").on(t.providerId), index("games_aggregator_provider_idx").on(t.providerCode, t.gameType)],
+  (t) => [index("games_status_idx").on(t.status), index("games_provider_idx").on(t.providerId), index("games_name_idx").on(t.name), index("games_aggregator_provider_idx").on(t.providerCode, t.gameType), index("games_api_source_idx").on(t.apiSource), uniqueIndex("games_api_external_unique").on(t.apiSource, t.apiExternalId)],
 );
 
 export const gameCategories = pgTable(
@@ -308,7 +312,7 @@ export const gameCategories = pgTable(
       .notNull()
       .references(() => categories.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.gameId, t.categoryId] })],
+  (t) => [primaryKey({ columns: [t.gameId, t.categoryId] }), index("game_categories_category_idx").on(t.categoryId)],
 );
 
 export const favorites = pgTable(
@@ -852,6 +856,9 @@ export const integrations = pgTable(
     notes: text("notes"),
     createdAt: created(),
     updatedAt: updated(),
+    lastTestAt: timestamp("last_test_at", { withTimezone: true }),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    lastSyncSummary: jsonb("last_sync_summary").$type<Record<string, unknown>>(),
   },
   (t) => [index("integrations_kind_idx").on(t.kind)],
 );

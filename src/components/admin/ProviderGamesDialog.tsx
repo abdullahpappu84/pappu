@@ -23,16 +23,21 @@ export function ProviderGamesDialog({ providerId, canEdit, onClose }: { provider
   const [assignAll, setAssignAll] = useState(false);
   const [message, setMessage] = useState("");
   const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
 
   useEffect(() => {
     let current = true;
-    const timer = setTimeout(() => api<ProviderGamesData>(`/api/admin/providers/${providerId}/games?page=${page}&q=${encodeURIComponent(search)}`).then((result) => {
+    const params = new URLSearchParams({ page: String(page), q: search });
+    if (statusFilter) params.set("status", statusFilter);
+    if (categoryFilter) params.set("categoryId", categoryFilter);
+    const timer = setTimeout(() => api<ProviderGamesData>(`/api/admin/providers/${providerId}/games?${params}`).then((result) => {
       if (current) setData(result);
     }).catch((e) => {
       if (current) setError(errMsg(e));
     }), 180);
     return () => { current = false; clearTimeout(timer); };
-  }, [providerId, page, search]);
+  }, [providerId, page, search, statusFilter, categoryFilter]);
 
   const visibleGames = useMemo(() => data?.games ?? [], [data]);
   const toggle = (id: number) => setSelected((old) => {
@@ -71,6 +76,7 @@ export function ProviderGamesDialog({ providerId, canEdit, onClose }: { provider
       <p className="mt-1 text-[13px] text-white/50">{data ? `${data.provider.totalGames} total · ${data.provider.activeGames} active · ${data.provider.inactiveGames} inactive · ${data.provider.maintenanceGames} maintenance` : "Loading provider games…"}</p>
       {data && <>
         <input className={`${inputCls} mt-4`} placeholder="Search provider games…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <div className="mt-2 grid gap-2 sm:grid-cols-2"><select className={inputCls} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="maintenance">Maintenance</option></select><select className={inputCls} value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}><option value="">All categories</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div>
         {canEdit && <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-white/75">
           <input type="checkbox" className="accent-[#f0b93f]" checked={allVisibleSelected} onChange={toggleVisible} />
           Select all {visibleGames.length} games on this page
