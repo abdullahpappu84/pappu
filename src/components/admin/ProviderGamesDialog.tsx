@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Spinner, inputCls } from "@/components/ui/kit";
 import { api, errMsg } from "@/lib/api";
+import { GameThumbnail } from "./GameThumbnail";
 
 type ProviderGamesData = {
   provider: { id: number; name: string; totalGames: number; activeGames: number; inactiveGames: number; maintenanceGames: number };
@@ -85,7 +86,7 @@ export function ProviderGamesDialog({ providerId, canEdit, onClose }: { provider
           {visibleGames.length ? visibleGames.map((game) => <label key={game.id} className="flex cursor-pointer items-center gap-3 border-b border-white/5 px-3 py-2.5 last:border-0 hover:bg-white/[0.03]">
             <input type="checkbox" className="accent-[#f0b93f]" disabled={!canEdit} checked={selected.has(game.id)} onChange={() => toggle(game.id)} />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {game.thumbnail ? <img src={game.thumbnail} alt="" className="h-10 w-10 rounded object-cover" /> : <span className="h-10 w-10 rounded bg-white/5" />}
+            <GameThumbnail src={game.thumbnail} name={game.name} className="h-10 w-10 rounded object-cover" />
             <span className="min-w-0 flex-1"><span className="block truncate text-sm text-white">{game.name}</span><span className="block text-[11px] text-white/45">{game.status}</span></span>
             <span className="max-w-[180px] text-right text-[11px] text-white/45">{game.categoryIds.map((id) => data.categories.find((cat) => cat.id === id)?.name).filter(Boolean).join(", ") || "No category"}</span>
           </label>) : <p className="p-5 text-center text-sm text-white/45">No games found for this provider.</p>}

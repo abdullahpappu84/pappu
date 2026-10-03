@@ -8,11 +8,21 @@ import type { IntegrationRow } from "./integrations/store";
 
 const slugify = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 100);
 const strings = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-const resolveThumbnail = (value: string | null | undefined, base: string) => {
-  if (!value) return undefined;
-  try { const url = new URL(value, base); return url.protocol === "https:" || url.protocol === "http:" ? url.href : undefined; }
-  catch { return undefined; }
-};
+const IMAGE_FIELDS = ["thumbnail_url", "thumbnail", "image_url", "image", "game_image", "icon", "logo"] as const;
+function aggregatorImage(game: AggregatorGame, base: string) {
+  const raw = game as unknown as Record<string, unknown>;
+  const field = IMAGE_FIELDS.find((key) => typeof raw[key] === "string" && (raw[key] as string).trim());
+  const original = field ? (raw[field] as string).trim() : null;
+  if (!original) return { field: null, original: null, url: null };
+  try {
+    // Aggregator's documented field is a URI. If a catalog response contains a
+    // relative URI, resolve it against the API host root rather than /v1/.
+    const url = new URL(original, new URL("/", base));
+    return { field, original, url: url.protocol === "https:" || url.protocol === "http:" ? url.href : null };
+  } catch {
+    return { field, original, url: null };
+  }
+}
 
 export async function syncAggregatorCatalog(api: IntegrationRow, options: { clean?: boolean } = {}) {
   const connection = aggregatorConnection(api);
@@ -71,6 +81,7 @@ export async function syncAggregatorCatalog(api: IntegrationRow, options: { clea
   let created = 0, updated = 0, failed = 0, thumbnailsUpdated = 0;
   const matchedIds = new Set<number>();
   for (const g of catalog) {
+    const image = aggregatorImage(g, connection.baseUrl);
     try {
       if (!g.id || !g.name || !g.provider_code) throw new Error("required catalog fields missing");
       const old = existingRows.find((row) => !matchedIds.has(row.id) && (
@@ -80,8 +91,8 @@ export async function syncAggregatorCatalog(api: IntegrationRow, options: { clea
       ));
       const providerId = providerByCode.get(g.provider_code.trim().toLowerCase()) ?? null;
       if (old) {
-        const thumbnail = resolveThumbnail(g.thumbnail_url, connection.baseUrl);
-        if (thumbnail && thumbnail !== old.thumbnail) thumbnailsUpdated++;
+        const thumbnail = image.url;
+        if (thumbnail !== old.thumbnail) thumbnailsUpdated++;
         const repair = {
           providerId,
           apiSource: api.code,
@@ -90,21 +101,23 @@ export async function syncAggregatorCatalog(api: IntegrationRow, options: { clea
           integrationRef: old.integrationRef ?? g.id,
           providerGameId: g.provider_game_id ?? old.providerGameId,
           providerCode: g.provider_code,
-          thumbnail: thumbnail ?? old.thumbnail,
+          thumbnail,
           updatedAt: new Date(),
         };
-        await db.update(games).set(repair).where(eq(games.id, old.id));
+        const [saved] = await db.update(games).set(repair).where(eq(games.id, old.id)).returning({ id: games.id });
+        console.info("[aggregator-sync] thumbnail", JSON.stringify({ gameName: g.name, externalGameId: g.id, provider: g.provider_code, originalImageField: image.field, originalImage: image.original, finalThumbnailUrl: thumbnail, thumbnailSaved: Boolean(saved) }));
         matchedIds.add(old.id);
         updated++;
       } else {
-        const values = toGameValues(g, providerId, `api-${slugify(api.code)}-${slugify(g.id)}`.slice(0, 120), api.code, connection.baseUrl);
-        await db.insert(games).values(values);
-        if (resolveThumbnail(g.thumbnail_url, connection.baseUrl)) thumbnailsUpdated++;
+        const values = toGameValues(g, providerId, `api-${slugify(api.code)}-${slugify(g.id)}`.slice(0, 120), api.code, image.url);
+        const [saved] = await db.insert(games).values(values).returning({ id: games.id });
+        console.info("[aggregator-sync] thumbnail", JSON.stringify({ gameName: g.name, externalGameId: g.id, provider: g.provider_code, originalImageField: image.field, originalImage: image.original, finalThumbnailUrl: image.url, thumbnailSaved: Boolean(saved) }));
+        if (image.url) thumbnailsUpdated++;
         created++;
       }
     } catch (e) {
       failed++;
-      console.error("[aggregator-sync] catalog record failed", g.id || "unknown", e instanceof Error ? e.message : "unknown error");
+      console.error("[aggregator-sync] catalog record failed", JSON.stringify({ gameName: g.name, externalGameId: g.id, provider: g.provider_code, originalImageField: image.field, originalImage: image.original, finalThumbnailUrl: image.url, thumbnailSaved: false, error: e instanceof Error ? e.message : "unknown error" }));
     }
   }
   let staleGamesDisabled = 0;
@@ -125,14 +138,14 @@ export async function syncAggregatorCatalog(api: IntegrationRow, options: { clea
   return { totalFetched: catalog.length, newGames: created, updatedGames: updated, deactivatedGames: staleGamesDisabled, failedRecords: failed, providersMatched, providersCreated, thumbnailsUpdated, staleGamesDisabled };
 }
 
-function toGameValues(g: AggregatorGame, providerId: number | null, slug: string, apiCode: string, baseUrl: string) {
+function toGameValues(g: AggregatorGame, providerId: number | null, slug: string, apiCode: string, thumbnail: string | null) {
   const raw = g as unknown as Record<string, unknown>;
   const rtp = typeof g.rtp === "number" || typeof g.rtp === "string" ? String(g.rtp) : null;
   return {
     name: g.name.slice(0, 120), slug, providerId,
     apiSource: apiCode,
     apiExternalId: g.id,
-    thumbnail: resolveThumbnail(g.thumbnail_url, baseUrl) ?? null,
+    thumbnail,
     // Never persist a temporary signed game URL.
     gameUrl: null,
     integrationRef: g.id,
