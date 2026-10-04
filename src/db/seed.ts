@@ -22,6 +22,7 @@ const CATEGORIES: Omit<typeof t.categories.$inferInsert, "sortOrder">[] = [
   { slug: "jackpot", name: "Jackpot", icon: "Gem", color: "#fbbf24", badge: "NEW" },
   { slug: "popular", name: "Popular", icon: "Flame", color: "#f97316" },
   { slug: "new", name: "New", icon: "Sparkles", color: "#e879f9" },
+  { slug: "bonus-wagering", name: "Bonus & Wagering", icon: "Gift", color: "#fb923c" },
   { slug: "promotions", name: "Promotions", icon: "Gift", color: "#f472b6" },
 ];
 

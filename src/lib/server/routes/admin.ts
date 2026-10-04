@@ -204,7 +204,7 @@ const routes: Route<C>[] = [
     perm: "games.edit",
     handler: async ({ ctx, params, req, ip }) => {
       const id = Number(params.id);
-      const body = await readJson(req, z.object({ name: z.string().trim().min(1).max(120).optional(), status: z.enum(["active", "inactive", "maintenance"]).optional(), isFeatured: z.boolean().optional(), sortOrder: z.number().int().optional() }));
+      const body = await readJson(req, z.object({ name: z.string().trim().min(1).max(120).optional(), status: z.enum(["active", "inactive", "maintenance"]).optional(), isFeatured: z.boolean().optional(), isPopular: z.boolean().optional(), isNew: z.boolean().optional(), sortOrder: z.number().int().optional() }));
       const [updated] = await db.update(t.games).set({ ...body, updatedAt: new Date() }).where(eq(t.games.id, id)).returning();
       if (!updated) throw notFound("Game not found.");
       await audit(db, actor(ctx), { action: "games.update", targetType: "game", targetId: String(id), description: `Updated game ${updated.name}`, ip });

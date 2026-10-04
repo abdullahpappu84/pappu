@@ -1,4 +1,4 @@
-import { Cherry, Crown, Dice5, Dices, Gift, Globe, Headphones, House, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { Cherry, Crown, Dice5, Dices, Gift, Globe, Headphones, House, ShieldCheck, Sparkles, Trophy, UserRound } from "lucide-react";
 import type { NavItem } from "./types";
 
 /** Static UI configuration. Games, categories, providers, banners and promotions are loaded from the database. */
@@ -12,6 +12,7 @@ export const BRAND = {
 export const NAV_ITEMS: NavItem[] = [
   { id: "home", label: "Home", icon: House, target: "top" },
   { id: "casino", label: "Casino", icon: Dices, target: "games", category: "all" },
+  { id: "sports", label: "Sports", icon: Trophy, target: "sports" },
   { id: "live", label: "Live Casino", icon: UserRound, target: "live-casino" },
   { id: "slots", label: "Slots", icon: Cherry, target: "games", category: "slots" },
   { id: "table", label: "Table Games", icon: Dice5, target: "games", category: "table" },

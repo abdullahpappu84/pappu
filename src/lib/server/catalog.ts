@@ -11,6 +11,7 @@ import {
   promotions,
   providers,
   recentlyPlayed,
+  transactions,
   vipLevels,
   vipUsers,
   wallets,
@@ -22,8 +23,9 @@ type GameRow = typeof games.$inferSelect;
 
 export function toGameDTO(g: GameRow, provider: string | null, cats: string[], actualPopular = false): GameDTO {
   const derived = new Set(cats);
+  const isRecent = g.createdAt.getTime() >= Date.now() - 30 * 86400000;
   if (g.isPopular || actualPopular) derived.add("popular");
-  if (g.isNew) derived.add("new");
+  if (g.isNew || isRecent) derived.add("new");
   return {
     id: g.slug,
     dbId: g.id,
@@ -35,12 +37,13 @@ export function toGameDTO(g: GameRow, provider: string | null, cats: string[], a
     image: g.thumbnail ?? undefined,
     mobileImage: g.mobileThumbnail ?? undefined,
     art: g.art ?? undefined,
-    badge: (g.badge as GameDTO["badge"]) ?? undefined,
+    badge: (g.badge as GameDTO["badge"]) ?? (isRecent ? "NEW" : undefined),
     rtp: Number(g.rtp ?? 0),
     volatility: g.volatility ?? "Unknown",
     maxWin: g.maxWin,
     displayType: g.displayType,
     status: g.status,
+    createdAt: g.createdAt.toISOString(),
     featured: g.isFeatured,
     description: g.description ?? undefined,
     live:
@@ -65,8 +68,16 @@ export async function loadGames(where = ne(games.status, "inactive")): Promise<G
     .where(and(inArray(gameCategories.gameId, rows.map((r) => r.g.id)), eq(categories.isActive, true)));
   const map = new Map<number, string[]>();
   for (const l of links) map.set(l.gameId, [...(map.get(l.gameId) ?? []), l.slug]);
-  const popularIds = new Set(rows.filter((r) => r.g.playCount > 0).sort((a, b) => b.g.playCount - a.g.playCount).slice(0, 20).map((r) => r.g.id));
-  return rows.map((r) => toGameDTO(r.g, r.provider, map.get(r.g.id) ?? [], popularIds.has(r.g.id)));
+  const playedRows = rows.filter((r) => r.g.playCount > 0).sort((a, b) => b.g.playCount - a.g.playCount).slice(0, 20);
+  const popularIds = new Set((playedRows.length ? playedRows : rows.filter((r) => r.g.isFeatured || r.g.isPopular).slice(0, 20)).map((r) => r.g.id));
+  const winningRows = await db.select({ gameId: sql<number>`(${transactions.metadata}->>'gameId')::int` })
+    .from(transactions)
+    .where(and(eq(transactions.type, "win"), gt(transactions.createdAt, new Date(Date.now() - 86400000)), sql`${transactions.metadata}->>'gameId' is not null`))
+    .groupBy(sql`(${transactions.metadata}->>'gameId')::int`)
+    .orderBy(desc(sql`count(*)`))
+    .limit(12);
+  const winningIds = new Set(winningRows.map((r) => r.gameId));
+  return rows.map((r) => ({ ...toGameDTO(r.g, r.provider, map.get(r.g.id) ?? [], popularIds.has(r.g.id)), winningActivity: winningIds.has(r.g.id) }));
 }
 
 export async function loadCatalog(): Promise<CatalogDTO> {

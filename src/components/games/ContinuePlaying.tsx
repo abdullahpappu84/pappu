@@ -6,7 +6,7 @@ import { useApp } from "@/components/providers/AppProvider";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { GameCard } from "./GameCard";
 
-/** "Continue Playing" row — the user's recently played games, same card style as Popular Games. */
+/** The signed-in player's own recently played games, kept to one compact horizontal row. */
 export function ContinuePlaying() {
   const { user, recent, games, go } = useApp();
   const list = useMemo(() => recent.map((slug) => games.find((g) => g.id === slug)).filter((g): g is NonNullable<typeof g> => Boolean(g)).slice(0, 6), [recent, games]);
@@ -20,9 +20,11 @@ export function ContinuePlaying() {
         actionLabel="History"
         onAction={() => go("/account?tab=games")}
       />
-      <div className="grid grid-cols-2 gap-2.5 xs:grid-cols-3 md:gap-3 lg:grid-cols-6 xl:gap-4">
+      <div className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-2 no-scrollbar md:gap-3">
         {list.map((g) => (
-          <GameCard key={g.id} game={g} />
+          <div key={g.id} className="w-[142px] shrink-0 snap-start xs:w-[160px] md:w-[176px]">
+            <GameCard game={g} />
+          </div>
         ))}
       </div>
     </section>

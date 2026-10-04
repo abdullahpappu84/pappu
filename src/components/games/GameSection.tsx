@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { Flame, SearchX } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useApp } from "@/components/providers/AppProvider";
 import { SectionHeader } from "@/components/ui/SectionHeader";
@@ -12,29 +12,33 @@ import { GameCard } from "./GameCard";
 export function GameSection() {
   const { category, provider, search, resetFilters, games: allGames, categories: CATEGORIES, favorites } = useApp();
   const [expanded, setExpanded] = useState(false);
+  const [initialLimit, setInitialLimit] = useState(6);
+
+  useEffect(() => {
+    const update = () => setInitialLimit(window.innerWidth >= 1024 ? 18 : window.innerWidth >= 768 ? 9 : 6);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
   const isDefault = category === "all" && provider === "All Providers" && search.trim() === "";
 
   const games = useMemo(() => {
     const standard = allGames.filter((g) => g.displayType === "standard");
-    const featured = standard.filter((g) => g.featured);
-    if (isDefault) {
-      const popular = standard.filter((g) => g.categories.includes("popular")).sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
-      return expanded ? standard : popular.length ? popular.slice(0, 12) : featured.length ? featured : standard.slice(0, 12);
-    }
     const q = search.trim().toLowerCase();
-    return allGames.filter(
+    const filtered = allGames.filter(
       (g) =>
         (category === "all" || (category === "favorites" ? favorites.has(g.id) : g.categories.includes(category))) &&
         (provider === "All Providers" || g.provider === provider) &&
         (!q || g.title.toLowerCase().includes(q) || g.provider.toLowerCase().includes(q)),
     );
-  }, [isDefault, expanded, category, provider, search, allGames, favorites]);
+    return isDefault && !expanded ? filtered.slice(0, initialLimit) : filtered;
+  }, [isDefault, expanded, initialLimit, category, provider, search, allGames, favorites]);
 
   const cat = CATEGORIES.find((c) => c.id === category);
-  const title = isDefault ? "Popular Games" : search.trim() ? "Search Results" : category === "all" ? provider : cat?.label ?? "Games";
+  const title = isDefault ? "All Games" : search.trim() ? "Search Results" : category === "all" ? provider : cat?.label ?? "Games";
   const subtitle = isDefault
-    ? "Most loved by our players"
+    ? `${allGames.filter((g) => g.displayType === "standard").length.toLocaleString()} games available`
     : `${games.length} game${games.length === 1 ? "" : "s"} found${provider !== "All Providers" && category !== "all" ? ` · ${provider}` : ""}`;
 
   return (

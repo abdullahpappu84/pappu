@@ -9,6 +9,7 @@ export type GameDTO = {
   provider: string;
   categories: string[];
   popularity: number;
+  winningActivity?: boolean;
   hasDemo: boolean;
   image?: string;
   mobileImage?: string;
@@ -19,6 +20,7 @@ export type GameDTO = {
   maxWin: string;
   displayType: "standard" | "live_table";
   status: "active" | "inactive" | "maintenance";
+  createdAt: string;
   featured: boolean;
   description?: string;
   live?: LiveMetaDTO;

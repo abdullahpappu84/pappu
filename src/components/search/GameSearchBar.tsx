@@ -1,8 +1,9 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import Image from "next/image";
 import { Check, ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QUICK_FILTERS } from "@/data/casino";
 import { useApp } from "@/components/providers/AppProvider";
 import { useClickOutside } from "@/components/ui/useClickOutside";
@@ -62,7 +63,18 @@ export function ProviderSelect({ className = "" }: { className?: string }) {
 }
 
 export function SearchInput({ id = "game-search", onSubmit }: { id?: string; onSubmit?: () => void }) {
-  const { search, setSearch, scrollTo } = useApp();
+  const { search, setSearch, scrollTo, games, provider, setPreviewGame } = useApp();
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [debounced, setDebounced] = useState(search);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(search.trim()), 160);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  const suggestions = useMemo(() => {
+    const q = debounced.toLowerCase();
+    if (!q) return [];
+    return games.filter((game) => game.status === "active" && (provider === "All Providers" || game.provider === provider) && `${game.title} ${game.provider}`.toLowerCase().includes(q)).slice(0, 7);
+  }, [debounced, games, provider]);
   return (
     <form
       role="search"
@@ -71,13 +83,15 @@ export function SearchInput({ id = "game-search", onSubmit }: { id?: string; onS
         if (onSubmit) onSubmit();
         else scrollTo("games");
       }}
-      className="relative flex-1"
+      className="relative z-30 flex-1"
     >
       <Search className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-white/45" />
       <input
         id={id}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
+        onFocus={() => setSuggestionsOpen(true)}
+        onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 150)}
         placeholder="Search your favourite game..."
         autoComplete="off"
         className="h-11 w-full rounded-xl border border-white/10 bg-ink-950/60 pl-11 pr-10 text-[13.5px] text-white placeholder:text-white/40 outline-none transition focus:border-gold-300/60 focus:bg-ink-950/80 focus:shadow-[0_0_0_4px_rgba(240,185,63,0.08)]"
@@ -92,6 +106,16 @@ export function SearchInput({ id = "game-search", onSubmit }: { id?: string; onS
           <X className="h-3.5 w-3.5" />
         </button>
       )}
+      {suggestionsOpen && debounced && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-xl border border-white/10 bg-ink-800 shadow-2xl">
+          {suggestions.length ? suggestions.map((game) => (
+            <button key={game.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setPreviewGame(game); setSuggestionsOpen(false); scrollTo("games"); }} className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white/5">
+              <span className="relative h-10 w-12 shrink-0 overflow-hidden rounded-md bg-ink-950">{game.image ? <Image src={game.image} alt="" fill unoptimized sizes="48px" className="object-cover" /> : <span className="grid h-full place-items-center text-xs text-gold-300">{game.title.slice(0, 1)}</span>}</span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-white">{game.title}</span><span className="block truncate text-[11px] text-white/45">{game.provider}</span></span>
+            </button>
+          )) : <p className="px-4 py-3 text-[13px] text-white/50">No games found</p>}
+        </div>
+      )}
     </form>
   );
 }
@@ -99,11 +123,11 @@ export function SearchInput({ id = "game-search", onSubmit }: { id?: string; onS
 export function GameSearchBar() {
   const { category, setCategory } = useApp();
   return (
-    <section id="search" aria-label="Search games" className="relative z-20 hidden scroll-mt-24 md:block lg:-mt-10">
+    <section id="search" aria-label="Search games" className="relative z-30 scroll-mt-24 lg:-mt-10">
       <div className="panel flex flex-wrap items-center gap-2 rounded-2xl p-2 shadow-[0_18px_40px_-18px_rgba(0,0,0,0.9)] backdrop-blur-xl lg:flex-nowrap">
-        <div className="flex w-full items-center gap-2 lg:w-auto lg:flex-1">
+        <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row lg:w-auto lg:flex-1">
           <SearchInput />
-          <ProviderSelect className="w-56 shrink-0 xl:w-72" />
+          <ProviderSelect className="w-full shrink-0 sm:w-56 xl:w-72" />
         </div>
         <div className="flex w-full items-center gap-1 overflow-x-auto rounded-xl border border-white/[0.06] bg-ink-950/40 p-1 no-scrollbar lg:w-auto">
           {QUICK_FILTERS.map(({ id, label, icon: Icon }) => {
