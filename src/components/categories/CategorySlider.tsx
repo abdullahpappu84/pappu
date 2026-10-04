@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Category } from "@/data/types";
 import { useApp } from "@/components/providers/AppProvider";
@@ -51,6 +51,8 @@ function CategoryTile({ cat, active, onSelect }: { cat: Category; active: boolea
 
 export function CategorySlider() {
   const { category, setCategory, scrollTo, categories } = useApp();
+  const sportCategory: Category = { id: "sports", label: "Sports", shortLabel: "Sports", icon: Trophy, color: "#34d399" };
+  const navCategories = categories.some((item) => item.id === "sports") ? categories : [...categories, sportCategory];
   const trackRef = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: true });
 
@@ -92,13 +94,17 @@ export function CategorySlider() {
         onScroll={update}
         className="flex snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth pb-1 pt-2 no-scrollbar xs:gap-2.5"
       >
-        {categories.map((cat) => (
+        {navCategories.map((cat) => (
           <CategoryTile
             key={cat.id}
             cat={cat}
             active={category === cat.id}
             onSelect={() => {
               if (cat.id === "promotions") return scrollTo("promotions");
+              if (cat.id === "sports") {
+                setCategory("sports");
+                return scrollTo("sports");
+              }
               setCategory(cat.id);
             }}
           />

@@ -11,11 +11,13 @@ import { GameCard } from "./GameCard";
 
 export function GameSection() {
   const { category, provider, search, resetFilters, games: allGames, categories: CATEGORIES, favorites } = useApp();
-  const [expanded, setExpanded] = useState(false);
-  const [initialLimit, setInitialLimit] = useState(6);
+  const [expandedFor, setExpandedFor] = useState("");
+  const [initialLimit, setInitialLimit] = useState(9);
+  const filterKey = `${category}|${provider}|${search.trim()}`;
+  const expanded = expandedFor === filterKey;
 
   useEffect(() => {
-    const update = () => setInitialLimit(window.innerWidth >= 1024 ? 18 : window.innerWidth >= 768 ? 9 : 6);
+    const update = () => setInitialLimit(window.innerWidth >= 1280 ? 24 : window.innerWidth >= 1024 ? 18 : window.innerWidth >= 768 ? 12 : 9);
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
@@ -30,16 +32,24 @@ export function GameSection() {
       (g) =>
         (category === "all" || (category === "favorites" ? favorites.has(g.id) : g.categories.includes(category))) &&
         (provider === "All Providers" || g.provider === provider) &&
-        (!q || g.title.toLowerCase().includes(q) || g.provider.toLowerCase().includes(q)),
+        (!q || g.title.toLowerCase().includes(q) || g.provider.toLowerCase().includes(q) || (g.description ?? "").toLowerCase().includes(q)),
     );
-    return isDefault && !expanded ? filtered.slice(0, initialLimit) : filtered;
-  }, [isDefault, expanded, initialLimit, category, provider, search, allGames, favorites]);
+    return expanded ? filtered : filtered.slice(0, initialLimit);
+  }, [expanded, initialLimit, category, provider, search, allGames, favorites]);
 
   const cat = CATEGORIES.find((c) => c.id === category);
   const title = isDefault ? "All Games" : search.trim() ? "Search Results" : category === "all" ? provider : cat?.label ?? "Games";
   const subtitle = isDefault
     ? `${allGames.filter((g) => g.displayType === "standard").length.toLocaleString()} games available`
     : `${games.length} game${games.length === 1 ? "" : "s"} found${provider !== "All Providers" && category !== "all" ? ` · ${provider}` : ""}`;
+  const totalMatches = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return allGames.filter((g) =>
+      (category === "all" || (category === "favorites" ? favorites.has(g.id) : g.categories.includes(category))) &&
+      (provider === "All Providers" || g.provider === provider) &&
+      (!q || g.title.toLowerCase().includes(q) || g.provider.toLowerCase().includes(q) || (g.description ?? "").toLowerCase().includes(q)),
+    ).length;
+  }, [category, provider, search, allGames, favorites]);
 
   return (
     <section id="games" aria-label={title} className="scroll-mt-24">
@@ -54,8 +64,8 @@ export function GameSection() {
         }
         title={title}
         subtitle={subtitle}
-        actionLabel={isDefault ? (expanded ? "Show Less" : "View All") : "Clear Filters"}
-        onAction={() => (isDefault ? setExpanded((e) => !e) : resetFilters())}
+        actionLabel={totalMatches > initialLimit ? (expanded ? "Show Less" : "View All") : isDefault ? undefined : "Clear Filters"}
+        onAction={() => (totalMatches > initialLimit ? setExpandedFor(expanded ? "" : filterKey) : resetFilters())}
       />
       <svg width="0" height="0" className="absolute" aria-hidden>
         <defs>
@@ -76,7 +86,7 @@ export function GameSection() {
           </Button>
         </div>
       ) : (
-        <motion.div layout className="grid grid-cols-2 gap-2.5 xs:grid-cols-3 md:gap-3 lg:grid-cols-6 xl:gap-4">
+        <motion.div layout className="grid max-w-[1320px] grid-cols-3 gap-2 md:grid-cols-4 md:gap-2.5 lg:grid-cols-6 xl:grid-cols-8">
           <AnimatePresence mode="popLayout" initial={false}>
             {games.map((game, i) => (
               <motion.div

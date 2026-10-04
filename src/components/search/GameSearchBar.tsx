@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import { Check, ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { QUICK_FILTERS } from "@/data/casino";
 import { useApp } from "@/components/providers/AppProvider";
 import { useClickOutside } from "@/components/ui/useClickOutside";
 
@@ -73,7 +72,7 @@ export function SearchInput({ id = "game-search", onSubmit }: { id?: string; onS
   const suggestions = useMemo(() => {
     const q = debounced.toLowerCase();
     if (!q) return [];
-    return games.filter((game) => game.status === "active" && (provider === "All Providers" || game.provider === provider) && `${game.title} ${game.provider}`.toLowerCase().includes(q)).slice(0, 7);
+    return games.filter((game) => game.status === "active" && (provider === "All Providers" || game.provider === provider) && `${game.title} ${game.provider} ${game.description ?? ""}`.toLowerCase().includes(q)).slice(0, 7);
   }, [debounced, games, provider]);
   return (
     <form
@@ -121,31 +120,12 @@ export function SearchInput({ id = "game-search", onSubmit }: { id?: string; onS
 }
 
 export function GameSearchBar() {
-  const { category, setCategory } = useApp();
   return (
     <section id="search" aria-label="Search games" className="relative z-30 scroll-mt-24 lg:-mt-10">
-      <div className="panel flex flex-wrap items-center gap-2 rounded-2xl p-2 shadow-[0_18px_40px_-18px_rgba(0,0,0,0.9)] backdrop-blur-xl lg:flex-nowrap">
-        <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row lg:w-auto lg:flex-1">
+      <div className="panel rounded-2xl p-2 shadow-[0_18px_40px_-18px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+        <div className="flex w-full min-w-0 items-center gap-2">
           <SearchInput />
-          <ProviderSelect className="w-full shrink-0 sm:w-56 xl:w-72" />
-        </div>
-        <div className="flex w-full items-center gap-1 overflow-x-auto rounded-xl border border-white/[0.06] bg-ink-950/40 p-1 no-scrollbar lg:w-auto">
-          {QUICK_FILTERS.map(({ id, label, icon: Icon }) => {
-            const active = category === id;
-            return (
-              <button
-                key={id}
-                onClick={() => setCategory(active ? "all" : id)}
-                aria-pressed={active}
-                className={`flex h-9 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 text-[12.5px] font-medium transition lg:flex-none ${
-                  active ? "bg-gold-400/15 text-gold-200 ring-1 ring-gold-300/40" : "text-white/75 hover:bg-white/5 hover:text-white"
-                }`}
-              >
-                <Icon className={`h-4 w-4 ${active ? "text-gold-300" : "text-gold-300/80"}`} />
-                {label}
-              </button>
-            );
-          })}
+          <ProviderSelect className="w-[36%] min-w-[112px] max-w-[220px] shrink-0" />
         </div>
       </div>
     </section>

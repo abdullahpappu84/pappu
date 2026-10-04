@@ -2,7 +2,7 @@
 
 import {
   BadgePercent, BarChart3, Bell, CreditCard, Crown, FileCheck2, FileText, Gamepad2, Gift, Image as ImageIcon, KeyRound, LayoutDashboard,
-  ListChecks, LogOut, Plug, Menu, MessagesSquare, Receipt, ScrollText, Settings, Shield, ShieldCheck, Ticket, UserCog, Users, Wallet, X, Handshake, Megaphone, ArrowDownToLine, ArrowUpFromLine,
+  ListChecks, LogOut, Plug, Menu, MessagesSquare, Receipt, ScrollText, Settings, Shield, ShieldCheck, Ticket, Trophy, UserCog, Users, Wallet, X, Handshake, Megaphone, ArrowDownToLine, ArrowUpFromLine,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -17,12 +17,17 @@ import { CommissionsSection, DepositsSection, ReportsSection, TransactionsSectio
 import { AuditSection, NotificationsSection, SettingsSection, TicketsSection } from "./SectionsOps";
 import { IntegrationsSection } from "./IntegrationsSection";
 import { GameManagement } from "./GameManagement";
+import { SportsApiManagement } from "./SportsApiManagement";
 
 export type AdminMe = { admin: { id: string; name: string; email: string; twoFactorEnabled: boolean }; roles: { name: string }[]; permissions: string[]; needs2faSetup: boolean };
 export const canDo = (me: AdminMe, perm: string) => me.permissions.includes("*") || me.permissions.includes(perm);
 
 type NavItem = { id: string; label: string; icon: typeof Users; perm: string; render: (me: AdminMe) => ReactNode };
-const res = (key: string) => (me: AdminMe) => <ResourceManager resource={RESOURCE_MAP[key]} me={me} />;
+const res = (key: string) => {
+  const ResourceSection = (me: AdminMe) => <ResourceManager resource={RESOURCE_MAP[key]} me={me} />;
+  ResourceSection.displayName = `AdminResource_${key}`;
+  return ResourceSection;
+};
 
 const NAV: { group: string; items: NavItem[] }[] = [
   { group: "Overview", items: [
@@ -43,6 +48,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
   ] },
   { group: "Games", items: [
     { id: "game-management", label: "Game Management", icon: Gamepad2, perm: "games.view", render: (me) => <GameManagement me={me} /> },
+    { id: "sports-apis", label: "Sports API Management", icon: Trophy, perm: "games.edit", render: () => <SportsApiManagement /> },
   ] },
   { group: "Marketing", items: [
     { id: "bonuses", label: "Bonuses", icon: Gift, perm: "bonuses.view", render: res("bonuses") },
@@ -138,7 +144,8 @@ export function AdminApp() {
     }
   }, [router]);
   useEffect(() => {
-    load();
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   if (!me) return <Spinner />;

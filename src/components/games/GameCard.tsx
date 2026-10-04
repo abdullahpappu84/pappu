@@ -13,7 +13,7 @@ const badgeStyles: Record<NonNullable<Game["badge"]>, string> = {
   JACKPOT: "bg-gold-gradient !text-ink-950",
 };
 
-export const GameCard = memo(function GameCard({ game, priority = false }: { game: Game; priority?: boolean }) {
+export const GameCard = memo(function GameCard({ game, priority = false, compact = false }: { game: Game; priority?: boolean; compact?: boolean }) {
   const { favorites, toggleFavorite, setPreviewGame } = useApp();
   const isFav = favorites.has(game.id);
 
@@ -59,9 +59,9 @@ export const GameCard = memo(function GameCard({ game, priority = false }: { gam
         </div>
 
         {/* Info */}
-        <div className="px-2 py-2 text-center md:py-2.5">
-          <h3 className="truncate text-[12.5px] font-semibold text-white md:text-[13.5px]">{game.title}</h3>
-          <p className="mt-0.5 truncate text-[10.5px] text-white/50 md:text-[11.5px]">{game.provider}</p>
+        <div className={compact ? "px-1 py-1 text-center" : "px-2 py-2 text-center md:py-2.5"}>
+          <h3 className={`truncate font-semibold text-white ${compact ? "text-[9px] leading-tight md:text-[10px]" : "text-[12.5px] md:text-[13.5px]"}`}>{game.title}</h3>
+          <p className={`truncate text-white/50 ${compact ? "mt-0.5 text-[8px] leading-tight md:text-[9px]" : "mt-0.5 text-[10.5px] md:text-[11.5px]"}`}>{game.provider}</p>
         </div>
       </div>
 
@@ -71,14 +71,14 @@ export const GameCard = memo(function GameCard({ game, priority = false }: { gam
         onClick={() => toggleFavorite(game.id, game.title)}
         aria-label={isFav ? `Remove ${game.title} from favourites` : `Add ${game.title} to favourites`}
         aria-pressed={isFav}
-        className={`absolute left-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full border backdrop-blur-md transition-all duration-300 md:left-2 md:top-2 md:h-8 md:w-8 ${
+        className={`absolute ${compact ? "left-0.5 top-0.5 h-5 w-5" : "left-1.5 top-1.5 h-7 w-7 md:left-2 md:top-2 md:h-8 md:w-8"} z-10 grid place-items-center rounded-full border backdrop-blur-md transition-all duration-300 ${
           isFav
             ? "border-rose-400/40 bg-rose-500/20 text-rose-400 opacity-100"
             : "border-white/15 bg-ink-950/50 text-white/85 hover:text-white md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
         }`}
       >
-        <motion.span key={String(isFav)} initial={{ scale: 0.4 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 15 }}>
-          <Heart className={`h-3.5 w-3.5 md:h-4 md:w-4 ${isFav ? "fill-current" : ""}`} />
+          <motion.span key={String(isFav)} initial={{ scale: 0.4 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 15 }}>
+          <Heart className={`${compact ? "h-2.5 w-2.5" : "h-3.5 w-3.5 md:h-4 md:w-4"} ${isFav ? "fill-current" : ""}`} />
         </motion.span>
       </motion.button>
     </article>

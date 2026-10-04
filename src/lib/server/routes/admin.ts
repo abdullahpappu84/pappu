@@ -55,6 +55,20 @@ const assertIntPerm = (ctx: AdminContext, kind: string) => {
   if (!can(ctx, perm)) throw forbidden(`Missing permission: ${perm}`);
 };
 const safeIntegration = (r: typeof t.integrations.$inferSelect) => ({ ...r, secrets: undefined, secretInfo: describeSecrets(r.secrets) });
+const safeSportsApi = (r: typeof t.integrations.$inferSelect) => ({
+  id: r.id,
+  name: r.name,
+  isActive: r.isActive,
+  apiName: r.config.apiName ?? r.name,
+  apiType: r.config.apiType ?? "",
+  baseUrl: r.config.baseUrl ?? "",
+  currency: r.config.currency ?? "",
+  region: r.config.region ?? "",
+  maintenanceMode: r.config.maintenanceMode === "true",
+  priority: Number(r.config.priority ?? 1),
+  credentials: describeSecrets(r.secrets),
+  updatedAt: r.updatedAt,
+});
 const safeEndpoint = (raw: string) => {
   try { const url = new URL(raw); return `${url.origin}${url.pathname.replace(/\/$/, "")}`; }
   catch { return "Not configured"; }
@@ -64,6 +78,59 @@ const TX_TYPES = t.txType.enumValues;
 const SETTINGS_PERM: Record<string, string> = { withdrawal: "finance.settings", deposit: "finance.settings", referral: "affiliates.manage", vip: "bonuses.manage" };
 
 const routes: Route<C>[] = [
+  {
+    method: "GET",
+    path: "sports-apis",
+    perm: "games.view",
+    handler: async () => {
+      const rows = await db.select().from(t.integrations).where(eq(t.integrations.kind, "sports"));
+      return { items: rows.map(safeSportsApi).sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name)) };
+    },
+  },
+  {
+    method: "POST",
+    path: "sports-apis",
+    perm: "games.edit",
+    handler: async ({ req, ctx, ip }) => {
+      const body = await readJson(req, z.object({ name: z.string().trim().min(2).max(120), apiName: z.string().trim().min(2).max(120), apiType: z.string().trim().min(1).max(80), baseUrl: z.string().url().max(2000), apiKey: z.string().max(5000).optional(), apiSecret: z.string().max(5000).optional(), currency: z.string().trim().max(8), region: z.string().trim().max(64), isActive: z.boolean(), maintenanceMode: z.boolean(), priority: z.number().int().min(1).max(10000) }));
+      if (!['http:', 'https:'].includes(new URL(body.baseUrl).protocol)) throw badRequest("Sports API URL must use HTTP or HTTPS.");
+      const code = `sports_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      const config = { apiName: body.apiName, apiType: body.apiType, baseUrl: body.baseUrl, currency: body.currency, region: body.region, maintenanceMode: String(body.maintenanceMode), priority: String(body.priority) };
+      const secrets = mergeSecrets({}, { API_KEY: body.apiKey ?? "", API_SECRET: body.apiSecret ?? "" });
+      const [row] = await db.insert(t.integrations).values({ kind: "sports", code, name: body.name, isActive: body.isActive, config, secrets }).returning();
+      await audit(db, actor(ctx), { action: "sports_api.create", targetType: "sports_api", targetId: String(row.id), description: `Added sports API ${row.name}`, ip });
+      return { item: safeSportsApi(row) };
+    },
+  },
+  {
+    method: "PATCH",
+    path: "sports-apis/:id",
+    perm: "games.edit",
+    handler: async ({ req, ctx, params, ip }) => {
+      const id = Number(params.id);
+      const [current] = await db.select().from(t.integrations).where(and(eq(t.integrations.id, id), eq(t.integrations.kind, "sports")));
+      if (!current) throw notFound("Sports API not found.");
+      const body = await readJson(req, z.object({ name: z.string().trim().min(2).max(120).optional(), apiName: z.string().trim().min(2).max(120).optional(), apiType: z.string().trim().min(1).max(80).optional(), baseUrl: z.string().url().max(2000).optional(), apiKey: z.string().max(5000).optional(), apiSecret: z.string().max(5000).optional(), currency: z.string().trim().max(8).optional(), region: z.string().trim().max(64).optional(), isActive: z.boolean().optional(), maintenanceMode: z.boolean().optional(), priority: z.number().int().min(1).max(10000).optional() }));
+      if (body.baseUrl && !["http:", "https:"].includes(new URL(body.baseUrl).protocol)) throw badRequest("Sports API URL must use HTTP or HTTPS.");
+      const config = { ...current.config, ...(body.apiName !== undefined ? { apiName: body.apiName } : {}), ...(body.apiType !== undefined ? { apiType: body.apiType } : {}), ...(body.baseUrl !== undefined ? { baseUrl: body.baseUrl } : {}), ...(body.currency !== undefined ? { currency: body.currency } : {}), ...(body.region !== undefined ? { region: body.region } : {}), ...(body.maintenanceMode !== undefined ? { maintenanceMode: String(body.maintenanceMode) } : {}), ...(body.priority !== undefined ? { priority: String(body.priority) } : {}) };
+      const secrets = mergeSecrets(current.secrets, { API_KEY: body.apiKey ?? "", API_SECRET: body.apiSecret ?? "" });
+      const [row] = await db.update(t.integrations).set({ name: body.name ?? current.name, isActive: body.isActive ?? current.isActive, config, secrets, updatedAt: new Date() }).where(eq(t.integrations.id, id)).returning();
+      await audit(db, actor(ctx), { action: "sports_api.update", targetType: "sports_api", targetId: String(id), description: `Updated sports API ${row.name}`, ip });
+      return { item: safeSportsApi(row) };
+    },
+  },
+  {
+    method: "DELETE",
+    path: "sports-apis/:id",
+    perm: "games.edit",
+    handler: async ({ ctx, params, ip }) => {
+      const id = Number(params.id);
+      const [row] = await db.delete(t.integrations).where(and(eq(t.integrations.id, id), eq(t.integrations.kind, "sports"))).returning();
+      if (!row) throw notFound("Sports API not found.");
+      await audit(db, actor(ctx), { action: "sports_api.delete", targetType: "sports_api", targetId: String(id), description: `Deleted sports API ${row.name}`, ip });
+      return { ok: true };
+    },
+  },
   {
     method: "GET",
     path: "providers/:id/games",
